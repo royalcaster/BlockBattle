@@ -1,0 +1,198 @@
+# SUIT Technical Guidelines 2025
+# Based on the official SUIT guidelines document
+
+## General Requirements
+
+- All code, comments, and documentation must be in **English**
+- Use Rider as the IDE (JetBrains Rider)
+- Follow the style guide (standard in Rider)
+- All submissions via Git following Git style guide
+- No Git GUIs except Rider
+- C# code must be adequately commented (methods and classes using XML comments)
+- Sources of external 3D models, sounds, or other files must be documented
+- Unity conventions must be followed
+- Code should be meaningfully commented (not everything needs a comment, but some things are incomprehensible without one)
+
+## C# Code Style Guide
+
+### Naming Conventions
+- **Methods**: Start with uppercase letter (PascalCase)
+  - Example: `CalculateDistance()`, `MovePlayer()`
+- **Private attributes/fields**: Start with underscore
+  - Example: `_playerPosition`, `_isActive`
+- **Variables**: Use descriptive names without abbreviations when possible
+  - Good: `xPosAtTop`, `xTop`, `index`
+  - Bad: `xPAT`, `xT`, `i` (unless in a simple loop)
+- **Almost everything**: Use CamelCase
+- **Namespaces**: Must correspond to folder structure
+
+### Code Quality
+- Avoid syntactic redundancy:
+  - ❌ `if (boolVar == true) {}` → ✅ `if (boolVar) {}`
+  - Prefer `foreach` loops when they work just as well as `for` loops
+- Use standard C# conventions (enforced in Rider)
+- Rider will underline deviations - right-click and fix them
+- Format code properly:
+  - Indentations and spaces matter!
+  - Spaces before and after `=`, `!=`, `==`, etc.
+  - Use Rider's auto-format: Select code → Hamburger Menu → Code Reformat Code (or Ctrl+Alt+L)
+
+### Comments
+- **Classes and Methods**: Use XML comments with `///`
+  - In Rider: Type `///` before a method/class to auto-generate XML comment structure
+  - AI can help generate these comments
+- **Everything else**: Use regular `//` comments before or after the code
+- Comments should be meaningful - not everything needs a comment, but complex logic does
+
+### Example XML Comment Structure:
+```csharp
+/// <summary>
+/// Moves the player to the specified position.
+/// </summary>
+/// <param name="position">The target position in world space.</param>
+/// <returns>True if movement was successful, false otherwise.</returns>
+public bool MovePlayer(Vector3 position)
+{
+    // Implementation
+}
+```
+
+## Git Guidelines
+
+### Branch Naming
+- Format: `<category>/<surname>/<YYYYMMDD>_<description-with-dashes>`
+- Categories: `level`, `interaction`, `bugfix`, `feature`, `pillnitz`
+- Only lowercase letters
+- Elements separated by underscores
+- Example: `level/kulikov/20240131_implement-level-1`
+- For group work: Alphabetically sorted surnames with single dash: `level/kulikov-wacker/20240131_implement-level-1`
+
+### Commits
+- **Language**: English
+- **Frequency**: Push as early as possible
+- **Atomic commits**: Not too large, not too small
+  - No monster commits, but also not every line a separate commit
+  - Try to separate by function:
+    - "Added cat"
+    - "Implemented swarm behavior script"
+    - "Created scene with cats using swarm behavior"
+
+### Commit Messages
+- Follow a simplified version of Conventional Commits
+- Three commit types (message must start with these):
+  - `feat: added new cool functionality`
+  - `fix: fixed some bug`
+  - `chore: removed redundant files or updated something that had no visible effect`
+- Follow with a very short summary
+- For larger commits, add details after a blank line:
+  ```
+  feat: add some cool things for topic A
+  
+  * implement some stuff
+  * improve other stuff
+  ```
+
+### Git Workflow
+- Before each commit: Update local branch state
+  - IDE: Hamburger Menu → Git → Fetch
+  - Branch selection → Click current branch → Update
+- New files are untracked (red in IDE) - must be added first
+  - Right-click file → Git → Add
+- File colors in IDE:
+  - Red → untracked
+  - Green → tracked and new
+  - Blue → tracked and edited
+  - Gray → tracked and will be removed
+
+## Unity Guidelines
+
+### Naming Conventions
+- **All naming**: Use CamelCase
+- Imported assets don't need to be renamed
+- Pay attention to plural and singular in folders and files
+
+### Folder Structure
+
+#### Standard Structure (for smaller projects):
+```
+Assets/
+  Scenes/
+    Main.unity
+  Prefabs/
+    Dog.prefab
+    Cat.prefab
+  Materials/
+    CatMaterial.mat
+    DogMaterial.mat
+  Scripts/
+    PetMove.cs
+  Textures/
+    CatRed.jpg
+    CatBlack.jpg
+    Dog.jpg
+  Imported_cat_From_website/
+    cat_model.obj
+  Dog_V2_from_WebSite/
+    husky.fbx
+```
+
+#### Concepts Structure (for larger projects):
+```
+Assets/
+  Scenes/
+    Main.unity
+  Concepts/
+    Pets/
+      Cat/
+        Cat.prefab
+        Textures/
+          CatRed.jpg
+          CatBlack.jpg
+      Dog/
+        Dog.prefab
+        Dog.jpg
+        Move.cs
+    Deps/  (can also be at respective object)
+      Imported_cat_From_website/
+        cat_model.obj
+      Dog_V2_from_WebSite/
+        husky.fbx
+```
+
+### Unity Project Setup
+- Work in `SampleScene`, not `SampleARFScene`
+- Define project name early in your branch (include surnames)
+- Example: "Call of Escape Room (Gottschild, Kulikov, Wacker)"
+- Build APK and deploy to Quest after checkout
+
+## AI Usage Guidelines
+
+- **AI usage is allowed** (like copying from StackOverflow)
+- **Must understand** copied/generated code and learn from it
+- For larger or complex copied passages, add source as comment link
+- Available tools:
+  - ChatGPT
+  - GitHub Copilot/Codex
+  - JetBrains AI Assistant (Claude Agent, 5 free credits, but token-hungry)
+  - LM-Studio for local AIs
+
+## Project-Specific Notes
+
+- Documentation is at the code itself
+- README files exist in various folders
+- If something is unclear, report it immediately - will be added to documentation
+- For VR projects: Work in SampleScene, build APK and deploy to Quest
+
+## Code Review Checklist
+
+When reviewing or writing code, ensure:
+- [ ] All methods and classes have XML comments (`///`)
+- [ ] Variable names are descriptive (no unnecessary abbreviations)
+- [ ] Code follows C# conventions (no Rider warnings)
+- [ ] No syntactic redundancy (`if (bool == true)` → `if (bool)`)
+- [ ] Proper formatting (spaces, indentation)
+- [ ] Comments are in English
+- [ ] External asset sources are documented
+- [ ] Unity naming conventions followed (CamelCase)
+- [ ] Folder structure follows Unity guidelines
+
