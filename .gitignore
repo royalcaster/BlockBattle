@@ -6,6 +6,8 @@
 [Bb]uilds/
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
+.utmp/
+Assets/_Recovery/
 
 # Unity3D generated meta files
 *.pidb.meta
