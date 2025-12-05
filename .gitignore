@@ -61,3 +61,5 @@ ExportedObj/
 *.mdb
 *.opendb
 *.VC.db
+Docs/guidelines.pdf
+Docs/idea.pdf

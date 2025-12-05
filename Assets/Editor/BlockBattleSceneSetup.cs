@@ -124,6 +124,19 @@ public static class BlockBattleSceneSetup
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
         
+        // Add XR Setup script to ensure proper configuration
+        GameObject xrSetupObj = GameObject.Find("BlockBattle XR Setup");
+        if (xrSetupObj == null)
+        {
+            xrSetupObj = new GameObject("BlockBattle XR Setup");
+            xrSetupObj.AddComponent<BlockBattle.BlockBattleXRSetup>();
+            Debug.Log("Created BlockBattle XR Setup component");
+        }
+
+        // Mark scene as dirty and save
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        
         Debug.Log("Phase 1 setup complete: XR Origin, Floor, and Table have been added to BlockBattleScene.");
     }
 }
