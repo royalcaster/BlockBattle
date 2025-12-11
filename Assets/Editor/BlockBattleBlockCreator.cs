@@ -1,6 +1,6 @@
 using UnityEngine;
 using UnityEditor;
-
+using System.Collections.Generic;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using System.IO;
 
@@ -30,6 +30,8 @@ public static class BlockBattleBlockCreator
         CreateCubeBlock(blockMaterial);
         CreateCylinderBlock(blockMaterial);
         CreateTriangleBlock(blockMaterial);
+        CreateRectangleBlock(blockMaterial);
+        CreateArchBlock(blockMaterial);
         
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -613,6 +615,366 @@ public static class BlockBattleBlockCreator
         
         mesh.vertices = vertices;
         mesh.triangles = triangles;
+        mesh.uv = uvs;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        
+        return mesh;
+    }
+
+    /// <summary>
+    /// Creates a rectangular block prefab (long flat block).
+    /// </summary>
+    private static void CreateRectangleBlock(Material material)
+    {
+        string prefabPath = $"{BlocksFolderPath}/Block_Rectangle.prefab";
+        
+        if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
+        {
+            Debug.LogWarning($"Block_Rectangle.prefab already exists at {prefabPath}. Skipping creation.");
+            return;
+        }
+        
+        // Create root GameObject
+        GameObject block = new GameObject("Block_Rectangle");
+        
+        // Add components to root
+        Rigidbody rigidbody = block.AddComponent<Rigidbody>();
+        ConfigureRigidbody(rigidbody);
+        
+        XRGrabInteractable grabInteractable = block.AddComponent<XRGrabInteractable>();
+        ConfigureGrabInteractable(grabInteractable);
+        
+        // Add collision controller for dynamic collision detection switching
+        block.AddComponent<BlockCollisionController>();
+        
+        // Create Visuals child
+        GameObject visuals = new GameObject("Visuals");
+        visuals.transform.SetParent(block.transform);
+        visuals.transform.localPosition = Vector3.zero;
+        visuals.transform.localRotation = Quaternion.identity;
+        visuals.transform.localScale = Vector3.one;
+        
+        MeshFilter meshFilter = visuals.AddComponent<MeshFilter>();
+        // Rectangle: 20cm long, 5cm wide, 5cm tall (like a plank)
+        Mesh rectangleMesh = GetOrCreateMesh("RectangleMesh", () => CreateRectangleMesh(0.2f, 0.05f, 0.05f));
+        meshFilter.sharedMesh = rectangleMesh;
+        
+        MeshRenderer meshRenderer = visuals.AddComponent<MeshRenderer>();
+        meshRenderer.sharedMaterial = material;
+        
+        // Create Collider child
+        GameObject colliderObj = new GameObject("Collider");
+        colliderObj.transform.SetParent(block.transform);
+        colliderObj.transform.localPosition = Vector3.zero;
+        colliderObj.transform.localRotation = Quaternion.identity;
+        colliderObj.transform.localScale = Vector3.one;
+        
+        BoxCollider boxCollider = colliderObj.AddComponent<BoxCollider>();
+        boxCollider.size = new Vector3(0.2f, 0.05f, 0.05f);
+        
+        // Set predicted visuals transform for XR Grab
+        grabInteractable.predictedVisualsTransform = visuals.transform;
+        
+        // Create prefab
+        PrefabUtility.SaveAsPrefabAsset(block, prefabPath);
+        Object.DestroyImmediate(block);
+        
+        Debug.Log($"Created Block_Rectangle.prefab at {prefabPath}");
+    }
+
+    /// <summary>
+    /// Creates an archway block prefab (block with arch cutout).
+    /// </summary>
+    private static void CreateArchBlock(Material material)
+    {
+        string prefabPath = $"{BlocksFolderPath}/Block_Arch.prefab";
+        
+        if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
+        {
+            Debug.LogWarning($"Block_Arch.prefab already exists at {prefabPath}. Skipping creation.");
+            return;
+        }
+        
+        // Create root GameObject
+        GameObject block = new GameObject("Block_Arch");
+        
+        // Add components to root
+        Rigidbody rigidbody = block.AddComponent<Rigidbody>();
+        ConfigureRigidbody(rigidbody);
+        
+        XRGrabInteractable grabInteractable = block.AddComponent<XRGrabInteractable>();
+        ConfigureGrabInteractable(grabInteractable);
+        
+        // Add collision controller for dynamic collision detection switching
+        block.AddComponent<BlockCollisionController>();
+        
+        // Create Visuals child
+        GameObject visuals = new GameObject("Visuals");
+        visuals.transform.SetParent(block.transform);
+        visuals.transform.localPosition = Vector3.zero;
+        visuals.transform.localRotation = Quaternion.identity;
+        visuals.transform.localScale = Vector3.one;
+        
+        MeshFilter meshFilter = visuals.AddComponent<MeshFilter>();
+        // Arch: 10cm tall, 10cm wide, 5cm deep with arch cutout
+        Mesh archMesh = GetOrCreateMesh("ArchMesh", () => CreateArchMesh(0.1f, 0.1f, 0.05f));
+        meshFilter.sharedMesh = archMesh;
+        
+        MeshRenderer meshRenderer = visuals.AddComponent<MeshRenderer>();
+        meshRenderer.sharedMaterial = material;
+        
+        // Create Collider child - use MeshCollider for arch
+        GameObject colliderObj = new GameObject("Collider");
+        colliderObj.transform.SetParent(block.transform);
+        colliderObj.transform.localPosition = Vector3.zero;
+        colliderObj.transform.localRotation = Quaternion.identity;
+        colliderObj.transform.localScale = Vector3.one;
+        
+        MeshCollider meshCollider = colliderObj.AddComponent<MeshCollider>();
+        string meshPath = $"{MeshesFolderPath}/ArchMesh.asset";
+        Mesh meshAsset = AssetDatabase.LoadAssetAtPath<Mesh>(meshPath);
+        if (meshAsset != null)
+        {
+            meshCollider.sharedMesh = meshAsset;
+        }
+        else
+        {
+            meshCollider.sharedMesh = archMesh;
+        }
+        meshCollider.convex = true;
+        
+        // Set predicted visuals transform for XR Grab
+        grabInteractable.predictedVisualsTransform = visuals.transform;
+        
+        // Create prefab
+        PrefabUtility.SaveAsPrefabAsset(block, prefabPath);
+        Object.DestroyImmediate(block);
+        
+        Debug.Log($"Created Block_Arch.prefab at {prefabPath}");
+    }
+
+    /// <summary>
+    /// Creates a rectangular block mesh (box with custom dimensions).
+    /// </summary>
+    private static Mesh CreateRectangleMesh(float length, float width, float height)
+    {
+        Mesh mesh = new Mesh();
+        mesh.name = "RectangleMesh";
+        
+        float halfLength = length * 0.5f;
+        float halfWidth = width * 0.5f;
+        float halfHeight = height * 0.5f;
+        
+        Vector3[] vertices = new Vector3[]
+        {
+            // Front face
+            new Vector3(-halfLength, -halfHeight, halfWidth),
+            new Vector3(halfLength, -halfHeight, halfWidth),
+            new Vector3(halfLength, halfHeight, halfWidth),
+            new Vector3(-halfLength, halfHeight, halfWidth),
+            // Back face
+            new Vector3(-halfLength, -halfHeight, -halfWidth),
+            new Vector3(-halfLength, halfHeight, -halfWidth),
+            new Vector3(halfLength, halfHeight, -halfWidth),
+            new Vector3(halfLength, -halfHeight, -halfWidth),
+            // Top face
+            new Vector3(-halfLength, halfHeight, -halfWidth),
+            new Vector3(-halfLength, halfHeight, halfWidth),
+            new Vector3(halfLength, halfHeight, halfWidth),
+            new Vector3(halfLength, halfHeight, -halfWidth),
+            // Bottom face
+            new Vector3(-halfLength, -halfHeight, -halfWidth),
+            new Vector3(halfLength, -halfHeight, -halfWidth),
+            new Vector3(halfLength, -halfHeight, halfWidth),
+            new Vector3(-halfLength, -halfHeight, halfWidth),
+            // Right face
+            new Vector3(halfLength, -halfHeight, -halfWidth),
+            new Vector3(halfLength, halfHeight, -halfWidth),
+            new Vector3(halfLength, halfHeight, halfWidth),
+            new Vector3(halfLength, -halfHeight, halfWidth),
+            // Left face
+            new Vector3(-halfLength, -halfHeight, -halfWidth),
+            new Vector3(-halfLength, -halfHeight, halfWidth),
+            new Vector3(-halfLength, halfHeight, halfWidth),
+            new Vector3(-halfLength, halfHeight, -halfWidth)
+        };
+        
+        int[] triangles = new int[]
+        {
+            // Front face
+            0, 1, 2, 0, 2, 3,
+            // Back face
+            4, 5, 6, 4, 6, 7,
+            // Top face
+            8, 9, 10, 8, 10, 11,
+            // Bottom face
+            12, 13, 14, 12, 14, 15,
+            // Right face
+            16, 17, 18, 16, 18, 19,
+            // Left face
+            20, 21, 22, 20, 22, 23
+        };
+        
+        Vector2[] uvs = new Vector2[vertices.Length];
+        for (int i = 0; i < uvs.Length; i++)
+        {
+            uvs[i] = new Vector2(vertices[i].x / length + 0.5f, vertices[i].y / height + 0.5f);
+        }
+        
+        mesh.vertices = vertices;
+        mesh.triangles = triangles;
+        mesh.uv = uvs;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        
+        return mesh;
+    }
+
+    /// <summary>
+    /// Creates an archway mesh (rectangular block with semicircular arch cutout at top).
+    /// </summary>
+    private static Mesh CreateArchMesh(float width, float height, float depth)
+    {
+        Mesh mesh = new Mesh();
+        mesh.name = "ArchMesh";
+        
+        // Arch parameters
+        float archRadius = width * 0.3f; // Arch radius is 30% of width
+        float archHeight = height * 0.6f; // Arch starts at 60% of height
+        int archSegments = 16; // Number of segments for the arch curve
+        
+        float halfWidth = width * 0.5f;
+        float halfDepth = depth * 0.5f;
+        
+        // Calculate vertices
+        List<Vector3> vertices = new List<Vector3>();
+        List<int> triangles = new List<int>();
+        
+        // Front face vertices (with arch)
+        // Bottom rectangle part
+        vertices.Add(new Vector3(-halfWidth, -height * 0.5f, halfDepth)); // 0: bottom-left
+        vertices.Add(new Vector3(halfWidth, -height * 0.5f, halfDepth)); // 1: bottom-right
+        vertices.Add(new Vector3(halfWidth, archHeight - height * 0.5f, halfDepth)); // 2: top-right (below arch)
+        vertices.Add(new Vector3(-halfWidth, archHeight - height * 0.5f, halfDepth)); // 3: top-left (below arch)
+        
+        // Arch curve vertices
+        int archStartIndex = vertices.Count;
+        for (int i = 0; i <= archSegments; i++)
+        {
+            float angle = Mathf.PI * (i / (float)archSegments); // 0 to PI (semicircle)
+            float x = Mathf.Cos(angle) * archRadius;
+            float y = archHeight - height * 0.5f + Mathf.Sin(angle) * archRadius;
+            vertices.Add(new Vector3(x, y, halfDepth));
+        }
+        
+        // Top of arch (flat top)
+        vertices.Add(new Vector3(-halfWidth, height * 0.5f, halfDepth)); // top-left
+        vertices.Add(new Vector3(halfWidth, height * 0.5f, halfDepth)); // top-right
+        
+        // Back face vertices (same structure)
+        int backStartIndex = vertices.Count;
+        vertices.Add(new Vector3(-halfWidth, -height * 0.5f, -halfDepth)); // bottom-left
+        vertices.Add(new Vector3(halfWidth, -height * 0.5f, -halfDepth)); // bottom-right
+        vertices.Add(new Vector3(halfWidth, archHeight - height * 0.5f, -halfDepth)); // top-right (below arch)
+        vertices.Add(new Vector3(-halfWidth, archHeight - height * 0.5f, -halfDepth)); // top-left (below arch)
+        
+        for (int i = 0; i <= archSegments; i++)
+        {
+            float angle = Mathf.PI * (i / (float)archSegments);
+            float x = Mathf.Cos(angle) * archRadius;
+            float y = archHeight - height * 0.5f + Mathf.Sin(angle) * archRadius;
+            vertices.Add(new Vector3(x, y, -halfDepth));
+        }
+        
+        vertices.Add(new Vector3(-halfWidth, height * 0.5f, -halfDepth)); // top-left
+        vertices.Add(new Vector3(halfWidth, height * 0.5f, -halfDepth)); // top-right
+        
+        // Front face triangles
+        // Bottom rectangle
+        triangles.Add(0); triangles.Add(1); triangles.Add(2);
+        triangles.Add(0); triangles.Add(2); triangles.Add(3);
+        
+        // Arch sides (left and right pillars)
+        triangles.Add(3); triangles.Add(archStartIndex); triangles.Add(archStartIndex + archSegments);
+        triangles.Add(3); triangles.Add(archStartIndex + archSegments); triangles.Add(vertices.Count - 4); // top-left
+        
+        triangles.Add(2); triangles.Add(vertices.Count - 3); triangles.Add(archStartIndex + archSegments);
+        triangles.Add(2); triangles.Add(archStartIndex + archSegments); triangles.Add(1);
+        
+        // Arch curve (simplified - connect arch points)
+        for (int i = 0; i < archSegments; i++)
+        {
+            int topLeft = vertices.Count - 4;
+            int topRight = vertices.Count - 3;
+            triangles.Add(archStartIndex + i);
+            triangles.Add(archStartIndex + i + 1);
+            triangles.Add(topLeft);
+            triangles.Add(archStartIndex + i + 1);
+            triangles.Add(topRight);
+            triangles.Add(topLeft);
+        }
+        
+        // Back face triangles (same pattern, offset by backStartIndex)
+        int backArchStart = backStartIndex + 4;
+        triangles.Add(backStartIndex); triangles.Add(backStartIndex + 2); triangles.Add(backStartIndex + 1);
+        triangles.Add(backStartIndex); triangles.Add(backStartIndex + 3); triangles.Add(backStartIndex + 2);
+        
+        triangles.Add(backStartIndex + 3); triangles.Add(backArchStart); triangles.Add(backArchStart + archSegments);
+        triangles.Add(backStartIndex + 3); triangles.Add(backArchStart + archSegments); triangles.Add(vertices.Count - 2);
+        
+        triangles.Add(backStartIndex + 2); triangles.Add(vertices.Count - 1); triangles.Add(backArchStart + archSegments);
+        triangles.Add(backStartIndex + 2); triangles.Add(backArchStart + archSegments); triangles.Add(backStartIndex + 1);
+        
+        for (int i = 0; i < archSegments; i++)
+        {
+            int topLeft = vertices.Count - 2;
+            int topRight = vertices.Count - 1;
+            triangles.Add(backArchStart + i);
+            triangles.Add(backArchStart + i + 1);
+            triangles.Add(topLeft);
+            triangles.Add(backArchStart + i + 1);
+            triangles.Add(topRight);
+            triangles.Add(topLeft);
+        }
+        
+        // Side faces (connect front and back)
+        // Left side
+        triangles.Add(0); triangles.Add(backStartIndex + 3); triangles.Add(backStartIndex);
+        triangles.Add(0); triangles.Add(3); triangles.Add(backStartIndex + 3);
+        
+        // Right side
+        triangles.Add(1); triangles.Add(backStartIndex + 1); triangles.Add(backStartIndex + 2);
+        triangles.Add(1); triangles.Add(backStartIndex + 2); triangles.Add(2);
+        
+        // Top left
+        triangles.Add(vertices.Count - 4); triangles.Add(vertices.Count - 2); triangles.Add(backStartIndex + 3);
+        triangles.Add(vertices.Count - 4); triangles.Add(3); triangles.Add(vertices.Count - 2);
+        
+        // Top right
+        triangles.Add(vertices.Count - 3); triangles.Add(2); triangles.Add(backStartIndex + 2);
+        triangles.Add(vertices.Count - 3); triangles.Add(backStartIndex + 2); triangles.Add(vertices.Count - 1);
+        
+        // Arch sides (connect front and back arch curves)
+        for (int i = 0; i < archSegments; i++)
+        {
+            int front1 = archStartIndex + i;
+            int front2 = archStartIndex + i + 1;
+            int back1 = backArchStart + i;
+            int back2 = backArchStart + i + 1;
+            
+            triangles.Add(front1); triangles.Add(back1); triangles.Add(front2);
+            triangles.Add(front2); triangles.Add(back1); triangles.Add(back2);
+        }
+        
+        Vector2[] uvs = new Vector2[vertices.Count];
+        for (int i = 0; i < uvs.Length; i++)
+        {
+            uvs[i] = new Vector2(vertices[i].x / width + 0.5f, vertices[i].y / height + 0.5f);
+        }
+        
+        mesh.vertices = vertices.ToArray();
+        mesh.triangles = triangles.ToArray();
         mesh.uv = uvs;
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
