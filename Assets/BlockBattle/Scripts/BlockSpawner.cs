@@ -1,4 +1,8 @@
 using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 namespace BlockBattle
 {
@@ -17,6 +21,26 @@ namespace BlockBattle
         [SerializeField, Tooltip("Spacing between blocks in meters")]
         private float m_BlockSpacing = 0.15f;
 
+        [SerializeField, Tooltip("Direction to spawn blocks in a line (normalized vector)")]
+        private Vector3 m_SpawnDirection = Vector3.right;
+
+        [SerializeField, Tooltip("Offset from spawn base position before starting the line")]
+        private Vector3 m_SpawnLineOffset = Vector3.zero;
+
+        [Header("Spawn Mode")]
+        [SerializeField, Tooltip("Use configuration-based spawning instead of simple spawning")]
+        private bool m_UseConfiguration = false;
+
+        [SerializeField, Tooltip("Spawn configuration to use (if UseConfiguration is true)")]
+        private BlockSpawnConfiguration m_SpawnConfiguration;
+
+        [Header("Spawn Settings")]
+        [SerializeField, Tooltip("Delay between spawning each block (in seconds). Set to 0 to spawn all at once.")]
+        private float m_SpawnDelay = 0.2f;
+
+        [SerializeField, Tooltip("If true, spawned blocks will be static (no Rigidbody, no physics, no interaction). Useful for reference structures.")]
+        private bool m_SpawnAsStatic = false;
+
         [Header("Block Prefabs")]
         [SerializeField, Tooltip("Cube block prefab")]
         private GameObject m_CubeBlockPrefab;
@@ -26,6 +50,12 @@ namespace BlockBattle
 
         [SerializeField, Tooltip("Triangle block prefab")]
         private GameObject m_TriangleBlockPrefab;
+
+        [SerializeField, Tooltip("Rectangle block prefab")]
+        private GameObject m_RectangleBlockPrefab;
+
+        [SerializeField, Tooltip("Arch block prefab")]
+        private GameObject m_ArchBlockPrefab;
 
         [Header("Spawn Location")]
         [SerializeField, Tooltip("Table GameObject. If null, will search for 'Table' in scene")]
@@ -64,6 +94,195 @@ namespace BlockBattle
         public void SpawnBlocks()
         {
             Debug.Log("BlockSpawner: SpawnBlocks() called");
+
+            if (m_UseConfiguration && m_SpawnConfiguration != null)
+            {
+                if (m_SpawnDelay > 0f)
+                {
+                    StartCoroutine(SpawnBlocksFromConfigurationCoroutine());
+                }
+                else
+                {
+                    SpawnBlocksFromConfiguration();
+                }
+                return;
+            }
+
+            // Fall back to simple spawning
+            SpawnBlocksSimple();
+        }
+
+        /// <summary>
+        /// Spawns blocks using the spawn configuration (all at once).
+        /// Uses colors from config but spawns blocks in a straight line in random order.
+        /// </summary>
+        private void SpawnBlocksFromConfiguration()
+        {
+            Debug.Log($"BlockSpawner: Spawning blocks from configuration '{m_SpawnConfiguration.ConfigurationName}'");
+
+            if (m_SpawnConfiguration.SpawnEntries == null || m_SpawnConfiguration.SpawnEntries.Count == 0)
+            {
+                Debug.LogWarning("BlockSpawner: Spawn configuration has no entries!");
+                return;
+            }
+
+            Vector3 basePosition = GetSpawnBasePosition();
+
+            // Create a shuffled copy of the entries for random order
+            List<BlockSpawnEntry> shuffledEntries = m_SpawnConfiguration.SpawnEntries.ToList();
+            ShuffleList(shuffledEntries);
+
+            // Normalize spawn direction to ensure consistent spacing
+            Vector3 normalizedDirection = m_SpawnDirection.normalized;
+
+            // Spawn blocks in a straight line
+            int blockIndex = 0;
+            foreach (BlockSpawnEntry entry in shuffledEntries)
+            {
+                Vector3 spawnPosition = basePosition + m_SpawnLineOffset + normalizedDirection * (blockIndex * m_BlockSpacing);
+                SpawnSingleBlockFromConfig(entry, spawnPosition);
+                blockIndex++;
+            }
+
+            Debug.Log($"BlockSpawner: Spawned {shuffledEntries.Count} blocks from configuration in random order");
+        }
+
+        /// <summary>
+        /// Spawns blocks using the spawn configuration with delay between each block (coroutine).
+        /// Uses colors from config but spawns blocks in a straight line in random order.
+        /// </summary>
+        private IEnumerator SpawnBlocksFromConfigurationCoroutine()
+        {
+            Debug.Log($"BlockSpawner: Spawning blocks from configuration '{m_SpawnConfiguration.ConfigurationName}' with delay of {m_SpawnDelay}s");
+
+            if (m_SpawnConfiguration.SpawnEntries == null || m_SpawnConfiguration.SpawnEntries.Count == 0)
+            {
+                Debug.LogWarning("BlockSpawner: Spawn configuration has no entries!");
+                yield break;
+            }
+
+            Vector3 basePosition = GetSpawnBasePosition();
+
+            // Create a shuffled copy of the entries for random order
+            List<BlockSpawnEntry> shuffledEntries = m_SpawnConfiguration.SpawnEntries.ToList();
+            ShuffleList(shuffledEntries);
+
+            // Normalize spawn direction to ensure consistent spacing
+            Vector3 normalizedDirection = m_SpawnDirection.normalized;
+
+            // Spawn blocks in a straight line with delay
+            int blockIndex = 0;
+            foreach (BlockSpawnEntry entry in shuffledEntries)
+            {
+                Vector3 spawnPosition = basePosition + m_SpawnLineOffset + normalizedDirection * (blockIndex * m_BlockSpacing);
+                SpawnSingleBlockFromConfig(entry, spawnPosition);
+                blockIndex++;
+                
+                // Wait before spawning next block
+                yield return new WaitForSeconds(m_SpawnDelay);
+            }
+
+            Debug.Log($"BlockSpawner: Finished spawning {shuffledEntries.Count} blocks from configuration in random order");
+        }
+
+        /// <summary>
+        /// Spawns a single block from a spawn entry using the specified position.
+        /// Uses block type and color from config, but uses the provided position and identity rotation.
+        /// </summary>
+        /// <param name="entry">The spawn entry containing block type and color</param>
+        /// <param name="spawnPosition">The position to spawn the block at</param>
+        private void SpawnSingleBlockFromConfig(BlockSpawnEntry entry, Vector3 spawnPosition)
+        {
+            GameObject prefab = GetPrefabForBlockType(entry.BlockType);
+            if (prefab == null)
+            {
+                Debug.LogWarning($"BlockSpawner: No prefab assigned for block type {entry.BlockType}. Skipping.");
+                return;
+            }
+
+            // Use identity rotation (blocks spawn upright, not in their target rotation)
+            GameObject block = Instantiate(prefab, spawnPosition, Quaternion.identity);
+            
+            if (block != null)
+            {
+                block.name = $"Block_{entry.BlockType}_{entry.BlockColor}_Spawned";
+                
+                // Apply color material from config
+                ApplyBlockColor(block, entry.BlockColor);
+                
+                // Make block static if requested (remove physics and interaction)
+                if (m_SpawnAsStatic)
+                {
+                    MakeBlockStatic(block);
+                }
+                
+                Debug.Log($"BlockSpawner: Spawned {entry.BlockType} ({entry.BlockColor}) at {spawnPosition}");
+            }
+        }
+
+        /// <summary>
+        /// Shuffles a list using Fisher-Yates shuffle algorithm.
+        /// </summary>
+        /// <typeparam name="T">The type of elements in the list</typeparam>
+        /// <param name="list">The list to shuffle</param>
+        private void ShuffleList<T>(List<T> list)
+        {
+            System.Random random = new System.Random();
+            int n = list.Count;
+            while (n > 1)
+            {
+                n--;
+                int k = random.Next(n + 1);
+                T value = list[k];
+                list[k] = list[n];
+                list[n] = value;
+            }
+        }
+
+        /// <summary>
+        /// Makes a block static by removing or disabling physics and interaction components.
+        /// </summary>
+        /// <param name="block">The block GameObject to make static</param>
+        private void MakeBlockStatic(GameObject block)
+        {
+            if (block == null)
+            {
+                return;
+            }
+
+            // Disable or remove Rigidbody
+            Rigidbody rb = block.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.isKinematic = true;
+                rb.useGravity = false;
+                // Optionally remove it completely:
+                // Object.Destroy(rb);
+            }
+
+            // Disable XR Grab Interactable
+            XRGrabInteractable grabInteractable = block.GetComponent<XRGrabInteractable>();
+            if (grabInteractable != null)
+            {
+                grabInteractable.enabled = false;
+            }
+
+            // Disable BlockCollisionController if present
+            BlockCollisionController collisionController = block.GetComponent<BlockCollisionController>();
+            if (collisionController != null)
+            {
+                collisionController.enabled = false;
+            }
+
+            Debug.Log($"BlockSpawner: Made block '{block.name}' static (no physics, no interaction)");
+        }
+
+        /// <summary>
+        /// Spawns blocks using the simple method (original behavior).
+        /// </summary>
+        private void SpawnBlocksSimple()
+        {
+            Debug.Log("BlockSpawner: Using simple spawn method");
 
             // Verify prefabs are assigned
             if (m_CubeBlockPrefab == null)
@@ -253,6 +472,94 @@ namespace BlockBattle
             }
 
             Debug.Log($"BlockSpawner: Spawning complete. Total blocks spawned: {totalSpawned}");
+        }
+
+        /// <summary>
+        /// Gets the base spawn position (table position + spawn height).
+        /// </summary>
+        /// <returns>The base spawn position</returns>
+        private Vector3 GetSpawnBasePosition()
+        {
+            if (m_Table == null)
+            {
+                m_Table = GameObject.Find("Table");
+            }
+
+            if (m_Table != null)
+            {
+                return m_Table.transform.position + Vector3.up * m_SpawnHeight;
+            }
+            else
+            {
+                return Vector3.up * 1f;
+            }
+        }
+
+        /// <summary>
+        /// Gets the prefab for the specified block type.
+        /// </summary>
+        /// <param name="blockType">The block type</param>
+        /// <returns>The prefab GameObject, or null if not assigned</returns>
+        private GameObject GetPrefabForBlockType(BlockType blockType)
+        {
+            switch (blockType)
+            {
+                case BlockType.Cube:
+                    return m_CubeBlockPrefab;
+                case BlockType.Cylinder:
+                    return m_CylinderBlockPrefab;
+                case BlockType.Triangle:
+                    return m_TriangleBlockPrefab;
+                case BlockType.Rectangle:
+                    return m_RectangleBlockPrefab;
+                case BlockType.Arch:
+                    return m_ArchBlockPrefab;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Applies a color material to a block.
+        /// </summary>
+        /// <param name="block">The block GameObject</param>
+        /// <param name="blockColor">The color to apply</param>
+        private void ApplyBlockColor(GameObject block, BlockColor blockColor)
+        {
+            if (block == null)
+            {
+                return;
+            }
+
+            // Load the colored material
+            string materialName = BlockColorUtility.GetMaterialName(blockColor);
+            Material coloredMaterial = Resources.Load<Material>(materialName);
+            
+            // If not in Resources, try loading from asset path (editor only)
+            #if UNITY_EDITOR
+            if (coloredMaterial == null)
+            {
+                string materialPath = $"Assets/BlockBattle/Materials/{materialName}.mat";
+                coloredMaterial = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            }
+            #endif
+
+            if (coloredMaterial == null)
+            {
+                Debug.LogWarning($"BlockSpawner: Could not load material {materialName}. Using default material.");
+                return;
+            }
+
+            // Apply material to the block's visuals
+            Transform visuals = block.transform.Find("Visuals");
+            if (visuals != null)
+            {
+                MeshRenderer renderer = visuals.GetComponent<MeshRenderer>();
+                if (renderer != null)
+                {
+                    renderer.material = coloredMaterial; // Use material (not sharedMaterial) to create instance
+                }
+            }
         }
     }
 }
