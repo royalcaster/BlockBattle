@@ -65,15 +65,25 @@ namespace BlockBattle
         private float m_SpawnHeight = 0.2f;
 
         /// <summary>
-        /// Logs spawner initialization.
+        /// Logs spawner initialization and warns about missing prefabs.
         /// </summary>
         private void Awake()
         {
             Debug.Log($"BlockSpawner: Awake() called. GameObject: {gameObject.name}, Active: {gameObject.activeSelf}, Enabled: {enabled}");
             Debug.Log($"BlockSpawner: SpawnOnStart = {m_SpawnOnStart}, BlocksPerType = {m_BlocksPerType}");
-            Debug.Log($"BlockSpawner: Prefab assignments - Cube: {(m_CubeBlockPrefab != null ? m_CubeBlockPrefab.name : "NULL")}, " +
+            Debug.Log($"BlockSpawner: Prefab assignments - " +
+                      $"Cube: {(m_CubeBlockPrefab != null ? m_CubeBlockPrefab.name : "NULL")}, " +
                       $"Cylinder: {(m_CylinderBlockPrefab != null ? m_CylinderBlockPrefab.name : "NULL")}, " +
-                      $"Triangle: {(m_TriangleBlockPrefab != null ? m_TriangleBlockPrefab.name : "NULL")}");
+                      $"Triangle: {(m_TriangleBlockPrefab != null ? m_TriangleBlockPrefab.name : "NULL")}, " +
+                      $"Rectangle: {(m_RectangleBlockPrefab != null ? m_RectangleBlockPrefab.name : "NULL")}, " +
+                      $"Arch: {(m_ArchBlockPrefab != null ? m_ArchBlockPrefab.name : "NULL")}");
+            
+            // Warn about missing prefabs
+            if (m_CubeBlockPrefab == null) Debug.LogWarning("BlockSpawner: Cube prefab is not assigned!");
+            if (m_CylinderBlockPrefab == null) Debug.LogWarning("BlockSpawner: Cylinder prefab is not assigned!");
+            if (m_TriangleBlockPrefab == null) Debug.LogWarning("BlockSpawner: Triangle prefab is not assigned!");
+            if (m_RectangleBlockPrefab == null) Debug.LogWarning("BlockSpawner: Rectangle prefab is not assigned!");
+            if (m_ArchBlockPrefab == null) Debug.LogWarning("BlockSpawner: Arch prefab is not assigned!");
         }
 
         /// <summary>
