@@ -65,3 +65,4 @@ Set the rotation rules based on block orientation:
 - Consider adding preset buttons in Inspector for common rotation configurations
 - Add visual feedback when block rotation is wrong (e.g., red tint)
 
+
