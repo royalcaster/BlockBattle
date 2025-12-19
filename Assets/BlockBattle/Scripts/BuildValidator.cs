@@ -134,6 +134,10 @@ namespace BlockBattle
             set => m_RotationTolerance = Mathf.Max(1f, value);
         }
 
+        public float StructureScale => m_StructureScale;
+
+        public float HeightOffset => m_HeightOffset;
+
         public BlockSpawnConfiguration ReferenceConfiguration
         {
             get => m_ReferenceConfiguration;

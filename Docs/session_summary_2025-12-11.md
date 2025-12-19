@@ -168,3 +168,4 @@ Major improvements to the BlockBattle validation system, including position-base
 - Build Zone center is used as fixed anchor (not dynamic centroid of placed blocks)
 - Both HUDs can be active simultaneously (debug + gameplay)
 
+

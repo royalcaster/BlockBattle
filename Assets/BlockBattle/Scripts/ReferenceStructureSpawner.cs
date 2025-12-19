@@ -43,6 +43,9 @@ namespace BlockBattle
         [SerializeField, Tooltip("Arch block prefab")]
         private GameObject m_ArchBlockPrefab;
 
+        [SerializeField, Tooltip("Big Triangle block prefab")]
+        private GameObject m_BigTriangleBlockPrefab;
+
         [Header("Holographic Effect")]
         [SerializeField, Tooltip("Whether to apply holographic effect to reference structure blocks")]
         private bool m_UseHolographicEffect = true;
@@ -580,6 +583,8 @@ namespace BlockBattle
                     return m_RectangleBlockPrefab;
                 case BlockType.Arch:
                     return m_ArchBlockPrefab;
+                case BlockType.BigTriangle:
+                    return m_BigTriangleBlockPrefab;
                 default:
                     return null;
             }

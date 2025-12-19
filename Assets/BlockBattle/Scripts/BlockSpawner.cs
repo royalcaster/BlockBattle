@@ -57,6 +57,9 @@ namespace BlockBattle
         [SerializeField, Tooltip("Arch block prefab")]
         private GameObject m_ArchBlockPrefab;
 
+        [SerializeField, Tooltip("Big Triangle block prefab")]
+        private GameObject m_BigTriangleBlockPrefab;
+
         [Header("Spawn Location")]
         [SerializeField, Tooltip("Table GameObject. If null, will search for 'Table' in scene")]
         private GameObject m_Table;
@@ -76,7 +79,8 @@ namespace BlockBattle
                       $"Cylinder: {(m_CylinderBlockPrefab != null ? m_CylinderBlockPrefab.name : "NULL")}, " +
                       $"Triangle: {(m_TriangleBlockPrefab != null ? m_TriangleBlockPrefab.name : "NULL")}, " +
                       $"Rectangle: {(m_RectangleBlockPrefab != null ? m_RectangleBlockPrefab.name : "NULL")}, " +
-                      $"Arch: {(m_ArchBlockPrefab != null ? m_ArchBlockPrefab.name : "NULL")}");
+                      $"Arch: {(m_ArchBlockPrefab != null ? m_ArchBlockPrefab.name : "NULL")}, " +
+                      $"BigTriangle: {(m_BigTriangleBlockPrefab != null ? m_BigTriangleBlockPrefab.name : "NULL")}");
             
             // Warn about missing prefabs
             if (m_CubeBlockPrefab == null) Debug.LogWarning("BlockSpawner: Cube prefab is not assigned!");
@@ -84,6 +88,7 @@ namespace BlockBattle
             if (m_TriangleBlockPrefab == null) Debug.LogWarning("BlockSpawner: Triangle prefab is not assigned!");
             if (m_RectangleBlockPrefab == null) Debug.LogWarning("BlockSpawner: Rectangle prefab is not assigned!");
             if (m_ArchBlockPrefab == null) Debug.LogWarning("BlockSpawner: Arch prefab is not assigned!");
+            if (m_BigTriangleBlockPrefab == null) Debug.LogWarning("BlockSpawner: BigTriangle prefab is not assigned!");
         }
 
         /// <summary>
@@ -524,6 +529,8 @@ namespace BlockBattle
                     return m_RectangleBlockPrefab;
                 case BlockType.Arch:
                     return m_ArchBlockPrefab;
+                case BlockType.BigTriangle:
+                    return m_BigTriangleBlockPrefab;
                 default:
                     return null;
             }

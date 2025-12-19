@@ -20,8 +20,8 @@ namespace BlockBattle
         [SerializeField, Tooltip("Height of the guide markers above the floor")]
         private float m_GuideHeight = 0.005f;
 
-        [SerializeField, Tooltip("Scale factor for guide markers (relative to block size)")]
-        private float m_GuideScale = 0.8f;
+        [SerializeField, Tooltip("Scale factor for guide markers (relative to block size). Set to 1.0 for exact fit.")]
+        private float m_GuideScale = 1.0f; // Changed default to 1.0 for exact footprint match
 
         [SerializeField, Tooltip("Opacity of guide markers")]
         [Range(0.1f, 1f)]
@@ -29,6 +29,9 @@ namespace BlockBattle
 
         [SerializeField, Tooltip("Show block type labels")]
         private bool m_ShowLabels = false;
+
+        [SerializeField, Tooltip("Maximum height above ground level to show guides (blocks above this are considered stacked)")]
+        private float m_MaxGroundLevelHeight = 0.08f; // Only show guides for blocks at ground level
 
         [Header("Colors")]
         [SerializeField]
@@ -116,18 +119,46 @@ namespace BlockBattle
             // Get build zone position
             Vector3 buildZonePos = m_BuildZone != null ? m_BuildZone.transform.position : transform.position;
 
-            // Create a guide for each block
+            // Get structure scale and height offset from BuildValidator (if available)
+            float structureScale = 1.0f;
+            float heightOffset = 0f;
+            if (m_BuildValidator != null)
+            {
+                structureScale = m_BuildValidator.StructureScale;
+                heightOffset = m_BuildValidator.HeightOffset;
+            }
+
+            // Find ground level (lowest Y position in reference structure)
+            float groundLevelY = float.MaxValue;
+            foreach (var entry in entries)
+            {
+                if (entry != null && entry.Position.y < groundLevelY)
+                {
+                    groundLevelY = entry.Position.y;
+                }
+            }
+
+            // Create a guide for each block (only for ground-level blocks)
             foreach (var entry in entries)
             {
                 if (entry == null) continue;
 
-                // Calculate world position for this guide
-                Vector3 relativePos = entry.Position - referenceCenter;
+                // Skip stacked blocks (blocks significantly above ground level)
+                float blockYRelativeToGround = entry.Position.y - groundLevelY;
+                if (blockYRelativeToGround > m_MaxGroundLevelHeight)
+                {
+                    Debug.Log($"BuildZonePlacementGuides: Skipping guide for stacked block {entry.BlockType} at Y={entry.Position.y} (ground level: {groundLevelY})");
+                    continue;
+                }
+
+                // Calculate world position for this guide (apply structure scale and height offset)
+                Vector3 relativePos = (entry.Position - referenceCenter) * structureScale;
+                relativePos.y += heightOffset; // Apply height offset to align with table
                 Vector3 guideWorldPos = buildZonePos + relativePos;
                 guideWorldPos.y = buildZonePos.y + m_GuideHeight; // Place on floor
 
                 // Create the guide marker
-                PlacementGuide guide = CreateGuideMarker(entry, guideWorldPos);
+                PlacementGuide guide = CreateGuideMarker(entry, guideWorldPos, structureScale);
                 m_Guides.Add(guide);
             }
 
@@ -138,8 +169,9 @@ namespace BlockBattle
         /// <summary>
         /// Creates a single guide marker for a block entry.
         /// Shows the FOOTPRINT (base) of each block on the floor.
+        /// Uses actual block dimensions and accounts for rotation.
         /// </summary>
-        private PlacementGuide CreateGuideMarker(BlockSpawnEntry entry, Vector3 worldPosition)
+        private PlacementGuide CreateGuideMarker(BlockSpawnEntry entry, Vector3 worldPosition, float structureScale)
         {
             PlacementGuide guide = new PlacementGuide
             {
@@ -148,73 +180,116 @@ namespace BlockBattle
                 LocalPosition = worldPosition - (m_BuildZone != null ? m_BuildZone.transform.position : transform.position)
             };
 
+            // Actual block dimensions (from BlockBattleBlockCreator.cs):
+            // Cube: 0.1m × 0.1m × 0.1m
+            // Cylinder: radius 0.05m, height 0.1m (diameter 0.1m)
+            // Rectangle: 0.2m × 0.05m × 0.05m (long × wide × tall)
+            // Triangle: 0.1m base × 0.1m height
+            // Arch: ~0.1m × 0.1m × 0.05m
+
             // Check if the block is standing upright (rotated around X or Z)
             Vector3 eulerRot = entry.Rotation.eulerAngles;
             bool isStandingUpright = IsBlockStandingUpright(eulerRot);
 
             // Determine shape and size based on block type and orientation
-            // We show the FOOTPRINT (base) on the floor, not the full block shape
+            // We show the FOOTPRINT (base) on the floor, matching exactly the bottom face of the block
             GameObject marker;
-            Vector3 scale;
+            Vector3 footprintXZ; // X and Z dimensions of the footprint (Y is height, set separately)
             float yRotation = eulerRot.y; // Only apply Y rotation to floor marker
 
             switch (entry.BlockType)
             {
                 case BlockType.Cube:
+                    // Cube: 0.1m × 0.1m footprint
                     marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    scale = new Vector3(0.1f, 0.02f, 0.1f) * m_GuideScale; // Square footprint
+                    footprintXZ = new Vector2(0.1f, 0.1f) * structureScale;
                     break;
                     
                 case BlockType.Cylinder:
+                    // Cylinder: diameter 0.1m (radius 0.05m)
                     marker = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                    scale = new Vector3(0.1f, 0.01f, 0.1f) * m_GuideScale; // Circular footprint
+                    footprintXZ = new Vector2(0.1f, 0.1f) * structureScale; // Circular footprint
                     break;
                     
                 case BlockType.Rectangle:
+                    // Rectangle: 0.2m × 0.05m × 0.05m (long × wide × tall)
+                    // The mesh is created with long dimension along X, wide along Z, tall along Y
                     marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
                     if (isStandingUpright)
                     {
-                        // Standing upright: small square footprint (the short end)
-                        scale = new Vector3(0.1f, 0.02f, 0.05f) * m_GuideScale;
+                        // Standing upright: footprint is the short end (0.05m × 0.05m)
+                        footprintXZ = new Vector2(0.05f, 0.05f) * structureScale;
                     }
                     else
                     {
-                        // Lying flat: rectangular footprint
-                        scale = new Vector3(0.2f, 0.02f, 0.1f) * m_GuideScale;
+                        // Lying flat: footprint is 0.2m × 0.05m
+                        // Long dimension (0.2m) is along local X, wide (0.05m) along local Z
+                        footprintXZ = new Vector2(0.2f, 0.05f) * structureScale;
                     }
                     break;
                     
                 case BlockType.Triangle:
+                    // Triangle: 0.1m base × 0.1m height
                     marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
                     if (isStandingUpright)
                     {
-                        // Standing upright: thin rectangular footprint
-                        scale = new Vector3(0.1f, 0.02f, 0.05f) * m_GuideScale;
+                        // Standing upright: thin edge footprint (~0.05m width)
+                        footprintXZ = new Vector2(0.1f, 0.05f) * structureScale;
                     }
                     else
                     {
-                        // Lying flat: triangular base (approximated as rectangle)
-                        scale = new Vector3(0.1f, 0.02f, 0.1f) * m_GuideScale;
+                        // Lying flat: triangular base (equilateral triangle, ~0.1m × 0.087m)
+                        footprintXZ = new Vector2(0.1f, 0.087f) * structureScale;
+                    }
+                    break;
+                    
+                case BlockType.BigTriangle:
+                    // Big Triangle: 0.2m base × 0.1m height
+                    marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    if (isStandingUpright)
+                    {
+                        // Standing upright: thin edge footprint (~0.05m width)
+                        footprintXZ = new Vector2(0.2f, 0.05f) * structureScale;
+                    }
+                    else
+                    {
+                        // Lying flat: triangular base (~0.2m × 0.173m for equilateral)
+                        footprintXZ = new Vector2(0.2f, 0.173f) * structureScale;
                     }
                     break;
                     
                 case BlockType.Arch:
+                    // Arch: ~0.1m × 0.1m × 0.05m
                     marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    scale = new Vector3(0.15f, 0.02f, 0.1f) * m_GuideScale;
+                    footprintXZ = new Vector2(0.1f, 0.1f) * structureScale;
                     break;
                     
                 default:
                     marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    scale = new Vector3(0.1f, 0.02f, 0.1f) * m_GuideScale;
+                    footprintXZ = new Vector2(0.1f, 0.1f) * structureScale;
                     break;
             }
+
+            // Apply guide scale (default 1.0 for exact fit) and set height
+            Vector3 scale = new Vector3(footprintXZ.x * m_GuideScale, 0.02f, footprintXZ.y * m_GuideScale);
 
             marker.name = $"Guide_{entry.BlockType}_{entry.BlockColor}";
             marker.transform.SetParent(m_GuidesContainer.transform, false);
             marker.transform.position = worldPosition;
             
-            // Apply only Y rotation (horizontal orientation on floor)
-            marker.transform.rotation = Quaternion.Euler(0, yRotation, 0);
+            // For Rectangle blocks lying flat, we need to rotate the footprint correctly
+            // The rectangle's long dimension should align with the block's rotation
+            if (entry.BlockType == BlockType.Rectangle && !isStandingUpright)
+            {
+                // Rectangle lying flat: long dimension (0.2m) should align with forward direction
+                // Apply Y rotation to orient the footprint correctly
+                marker.transform.rotation = Quaternion.Euler(0, yRotation, 0);
+            }
+            else
+            {
+                // For other blocks, just apply Y rotation
+                marker.transform.rotation = Quaternion.Euler(0, yRotation, 0);
+            }
             
             marker.transform.localScale = scale;
             guide.ExpectedScale = scale;

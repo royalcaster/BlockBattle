@@ -1336,7 +1336,7 @@ MonoBehaviour:
   m_SpawnDirection: {x: 1, y: 0, z: 0}
   m_SpawnLineOffset: {x: -1.04, y: 0, z: 0}
   m_UseConfiguration: 1
-  m_SpawnConfiguration: {fileID: 11400000, guid: cda58762bbda6cc45b066eeba27a97f3,
+  m_SpawnConfiguration: {fileID: 11400000, guid: 45d9aa7e022b6864b97d0b98357f73e2,
     type: 2}
   m_SpawnDelay: 0.2
   m_SpawnAsStatic: 0
@@ -1349,6 +1349,8 @@ MonoBehaviour:
   m_RectangleBlockPrefab: {fileID: 6620566850578622691, guid: 67c10fd43fe5dbd43ac39e99625dd5a7,
     type: 3}
   m_ArchBlockPrefab: {fileID: 4627017006652698212, guid: 10844140b6200de419e697d806a8e24f,
+    type: 3}
+  m_BigTriangleBlockPrefab: {fileID: 1684962492138486894, guid: 52d12201187a8194683820e5c6e8ca08,
     type: 3}
   m_Table: {fileID: 231810054}
   m_SpawnHeight: 0.2
@@ -1455,7 +1457,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d3aba39915bf3b043a6964bd9872a0d9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BlockBattle.ReferenceStructureSpawner
-  m_SpawnConfiguration: {fileID: 11400000, guid: cda58762bbda6cc45b066eeba27a97f3,
+  m_SpawnConfiguration: {fileID: 11400000, guid: 45d9aa7e022b6864b97d0b98357f73e2,
     type: 2}
   m_Table: {fileID: 231810054}
   m_TableOffset: {x: 1.5, y: 0.25, z: 0}
@@ -1470,6 +1472,7 @@ MonoBehaviour:
     type: 3}
   m_ArchBlockPrefab: {fileID: 4627017006652698212, guid: 10844140b6200de419e697d806a8e24f,
     type: 3}
+  m_BigTriangleBlockPrefab: {fileID: 0}
   m_UseHolographicEffect: 1
   m_HolographicTransparency: 0.931
   m_HolographicEmissionColor: {r: 0.3, g: 0.8, b: 1, a: 1}
@@ -1687,6 +1690,7 @@ MonoBehaviour:
   m_GuideScale: 0.8
   m_GuideOpacity: 0.5
   m_ShowLabels: 0
+  m_MaxGroundLevelHeight: 0.08
   m_UnfilledGuideColor: {r: 1, g: 1, b: 1, a: 0.3}
   m_FilledGuideColor: {r: 0, g: 1, b: 0, a: 0.5}
 --- !u!1 &1080869798
@@ -2050,7 +2054,7 @@ MonoBehaviour:
   m_MaxHeightAboveTable: 1
   m_Table: {fileID: 231810054}
   m_BuildZone: {fileID: 1046248545}
-  m_ReferenceConfiguration: {fileID: 11400000, guid: cda58762bbda6cc45b066eeba27a97f3,
+  m_ReferenceConfiguration: {fileID: 11400000, guid: 45d9aa7e022b6864b97d0b98357f73e2,
     type: 2}
   m_ReferenceStructureSpawner: {fileID: 931133730}
   m_ShowDebugGizmos: 1

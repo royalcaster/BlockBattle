@@ -221,6 +221,7 @@ namespace BlockBattle
             m_BlockMeshes[BlockType.Triangle] = m_TriangleMesh != null ? m_TriangleMesh : GetPrimitiveMesh(PrimitiveType.Cube);
             m_BlockMeshes[BlockType.Rectangle] = m_RectangleMesh != null ? m_RectangleMesh : GetPrimitiveMesh(PrimitiveType.Cube);
             m_BlockMeshes[BlockType.Arch] = m_ArchMesh != null ? m_ArchMesh : GetPrimitiveMesh(PrimitiveType.Cylinder);
+            m_BlockMeshes[BlockType.BigTriangle] = m_TriangleMesh != null ? m_TriangleMesh : GetPrimitiveMesh(PrimitiveType.Cube); // Use triangle mesh for now
         }
 
         /// <summary>
@@ -320,6 +321,8 @@ namespace BlockBattle
                     return PrimitiveType.Cylinder;
                 case BlockType.Triangle:
                     return PrimitiveType.Cube; // Will be replaced with triangle mesh
+                case BlockType.BigTriangle:
+                    return PrimitiveType.Cube; // Will be replaced with triangle mesh
                 case BlockType.Arch:
                     return PrimitiveType.Cylinder;
                 case BlockType.Rectangle:
@@ -389,6 +392,8 @@ namespace BlockBattle
                     return new Vector3(0.8f, 0.8f, 0.8f);
                 case BlockType.Triangle:
                     return new Vector3(1f, 1f, 0.8f);
+                case BlockType.BigTriangle:
+                    return new Vector3(2f, 1f, 0.8f); // Twice as wide
                 case BlockType.Arch:
                     return new Vector3(1f, 0.8f, 0.6f);
                 case BlockType.Cube:
@@ -409,6 +414,7 @@ namespace BlockBattle
                 case BlockType.Triangle: return "TRI";
                 case BlockType.Rectangle: return "REC";
                 case BlockType.Arch: return "ARC";
+                case BlockType.BigTriangle: return "BTRI";
                 default: return "???";
             }
         }
@@ -575,4 +581,5 @@ namespace BlockBattle
         }
     }
 }
+
 
