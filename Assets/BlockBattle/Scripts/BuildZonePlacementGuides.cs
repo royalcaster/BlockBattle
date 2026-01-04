@@ -56,6 +56,7 @@ namespace BlockBattle
             public BlockType BlockType;
             public BlockColor BlockColor;
             public Vector3 LocalPosition;
+            public Vector3 ExpectedRelativePosition; // Expected position relative to build center (for matching)
             public Vector3 ExpectedScale;
             public bool IsFilled;
         }
@@ -159,6 +160,7 @@ namespace BlockBattle
 
                 // Create the guide marker
                 PlacementGuide guide = CreateGuideMarker(entry, guideWorldPos, structureScale);
+                guide.ExpectedRelativePosition = relativePos; // Store expected relative position for matching
                 m_Guides.Add(guide);
             }
 
@@ -345,6 +347,8 @@ namespace BlockBattle
 
         /// <summary>
         /// Updates guide visual states based on which blocks have been placed.
+        /// Matches guides to block results by expected position, not by index.
+        /// This allows identical blocks (same type/color) to be placed interchangeably.
         /// </summary>
         private void UpdateGuideStates()
         {
@@ -353,31 +357,62 @@ namespace BlockBattle
             var result = m_BuildValidator.ValidateBuild();
             if (result == null || result.BlockResults == null) return;
 
-            // Match guide indices to block results
-            for (int i = 0; i < m_Guides.Count && i < result.BlockResults.Count; i++)
+            // Reset all guides to unfilled state first
+            foreach (var guide in m_Guides)
             {
-                var guide = m_Guides[i];
-                var blockResult = result.BlockResults[i];
+                guide.IsFilled = false;
+            }
 
-                bool wasFilled = guide.IsFilled;
-                guide.IsFilled = blockResult.IsPresent && blockResult.IsCorrect;
+            // Match guides to block results by comparing expected positions
+            // This allows identical blocks to be placed interchangeably
+            const float positionMatchTolerance = 0.01f; // 1cm tolerance for position matching
+            
+            foreach (var blockResult in result.BlockResults)
+            {
+                if (blockResult == null) continue;
 
-                // Update color if state changed
-                if (guide.IsFilled != wasFilled)
+                // Find the guide that matches this block result's expected position
+                PlacementGuide matchingGuide = null;
+                float bestDistance = float.MaxValue;
+
+                foreach (var guide in m_Guides)
                 {
-                    Color targetColor;
-                    if (guide.IsFilled)
+                    // Check if type and color match
+                    if (guide.BlockType != blockResult.BlockType || guide.BlockColor != blockResult.BlockColor)
+                        continue;
+
+                    // Check if expected positions match (within tolerance)
+                    float distance = Vector3.Distance(guide.ExpectedRelativePosition, blockResult.ExpectedRelativePosition);
+                    if (distance < positionMatchTolerance && distance < bestDistance)
                     {
-                        targetColor = m_FilledGuideColor;
+                        bestDistance = distance;
+                        matchingGuide = guide;
                     }
-                    else
-                    {
-                        Color blockColor = BlockColorUtility.GetColor(guide.BlockColor);
-                        targetColor = Color.Lerp(m_UnfilledGuideColor, blockColor, 0.5f);
-                    }
-                    targetColor.a = m_GuideOpacity;
-                    guide.Material.color = targetColor;
                 }
+
+                // Update the matching guide's state
+                if (matchingGuide != null)
+                {
+                    matchingGuide.IsFilled = blockResult.IsPresent && blockResult.IsCorrect;
+                }
+            }
+
+            // Update colors for all guides based on their current state
+            // This ensures guides turn back to unfilled color when blocks are removed
+            foreach (var guide in m_Guides)
+            {
+                Color targetColor;
+                if (guide.IsFilled)
+                {
+                    targetColor = m_FilledGuideColor;
+                }
+                else
+                {
+                    Color blockColor = BlockColorUtility.GetColor(guide.BlockColor);
+                    targetColor = Color.Lerp(m_UnfilledGuideColor, blockColor, 0.5f);
+                }
+                targetColor.a = m_GuideOpacity;
+                guide.Material.color = targetColor;
             }
         }
 

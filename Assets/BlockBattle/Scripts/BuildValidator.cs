@@ -115,6 +115,9 @@ namespace BlockBattle
         private float m_LockedRotation = 0f;
         private int m_LastPlacedBlockCount = 0;
         private bool m_Initialized = false;
+        
+        // Effective height offset (may be adjusted for single-block structures)
+        private float m_EffectiveHeightOffset = 0.12f;
 
         private void Awake()
         {
@@ -209,6 +212,18 @@ namespace BlockBattle
             result.BuildCenter = buildCenter;
             m_LastBuildCenter = buildCenter;
 
+            // Special handling for single-block structures at Y=0: adjust height offset
+            // When reference center Y is 0 and there's only one block, the block is likely sitting
+            // directly on the floor, so its center is at ~0.05m (half cube height) rather than 0.12m
+            m_EffectiveHeightOffset = m_HeightOffset;
+            if (referenceEntries.Count == 1 && Mathf.Abs(referenceCenter.y) < 0.01f)
+            {
+                // For single block at Y=0, use a smaller offset that accounts for block center height
+                // Cube blocks are 0.1m tall, so center is at 0.05m above floor
+                m_EffectiveHeightOffset = 0.05f;
+                Debug.Log($"BuildValidator: Single-block structure detected at Y=0, using adjusted height offset: {m_EffectiveHeightOffset}m (instead of {m_HeightOffset}m)");
+            }
+
             Debug.Log($"=== BUILD VALIDATION ===");
             Debug.Log($"Placed blocks: {placedBlocks.Count}, Reference blocks: {referenceEntries.Count}");
             Debug.Log($"Build center (zone): {buildCenter}");
@@ -221,11 +236,11 @@ namespace BlockBattle
             Debug.Log($"Tolerances: Position={m_PositionTolerance}m, Rotation={m_RotationTolerance}°");
             
             // Log expected positions for each reference block
-            Debug.Log($"--- Expected positions (relative to zone center, with height offset {m_HeightOffset}m) ---");
+            Debug.Log($"--- Expected positions (relative to zone center, with height offset {m_EffectiveHeightOffset}m) ---");
             foreach (var entry in referenceEntries)
             {
                 Vector3 expectedRelPos = (entry.Position - referenceCenter) * m_StructureScale;
-                expectedRelPos.y += m_HeightOffset; // Apply height offset
+                expectedRelPos.y += m_EffectiveHeightOffset; // Apply effective height offset
                 Vector3 expectedWorldPos = buildCenter + expectedRelPos;
                 Debug.Log($"  {entry.BlockType} ({entry.BlockColor}): RelPos={expectedRelPos}, WorldPos={expectedWorldPos}");
             }
@@ -504,7 +519,7 @@ namespace BlockBattle
                 var expectedPositions = refs.Select(entry =>
                 {
                     Vector3 relPos = (entry.Position - referenceCenter) * m_StructureScale;
-                    relPos.y += m_HeightOffset;
+                    relPos.y += m_EffectiveHeightOffset;
                     return rotOffset * relPos;
                 }).ToList();
 
@@ -609,7 +624,7 @@ namespace BlockBattle
                 foreach (var (entry, _) in refEntries)
                 {
                     Vector3 relPos = (entry.Position - referenceCenter) * m_StructureScale;
-                    relPos.y += m_HeightOffset;
+                    relPos.y += m_EffectiveHeightOffset;
                     // Apply Y-axis rotation to the relative position
                     relPos = rotOffset * relPos;
                     expectedPositions.Add(relPos);
@@ -1069,7 +1084,7 @@ namespace BlockBattle
             {
                 if (entry == null) continue;
                 Vector3 relativePos = (entry.Position - referenceCenter) * m_StructureScale;
-                relativePos.y += m_HeightOffset;
+                relativePos.y += m_EffectiveHeightOffset;
                 // Apply the auto-alignment rotation
                 relativePos = rotOffset * relativePos;
                 Vector3 worldPos = buildCenter + relativePos;

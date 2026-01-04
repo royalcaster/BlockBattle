@@ -12,13 +12,101 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 258305b9c3cfbb44a99518a870f2c9d7, type: 3}
   m_Name: Level2Structure
   m_EditorClassIdentifier: Assembly-CSharp::BlockBattle.BlockSpawnConfiguration
-  ConfigurationName: Level1Structure
+  ConfigurationName: Level2Structure
   Description: 
   SpawnEntries:
   - BlockType: 0
-    BlockColor: 3
-    Position: {x: 0, y: 0, z: 0}
+    BlockColor: 1
+    Position: {x: -0.1, y: 0, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
+    AllowedRotations:
+      FlipX: 1
+      FlipY: 1
+      FlipZ: 1
+      Steps90X: 0
+      Steps90Y: 0
+      Steps90Z: 1
+  - BlockType: 0
+    BlockColor: 2
+    Position: {x: 0.2, y: 0, z: 0}
+    Rotation: {x: 0, y: 0, z: 0, w: 1}
+    AllowedRotations:
+      FlipX: 1
+      FlipY: 1
+      FlipZ: 1
+      Steps90X: 1
+      Steps90Y: 1
+      Steps90Z: 1
+  - BlockType: 0
+    BlockColor: 4
+    Position: {x: 0.2, y: 0, z: 0.1}
+    Rotation: {x: 0, y: 0, z: 0, w: 1}
+    AllowedRotations:
+      FlipX: 1
+      FlipY: 1
+      FlipZ: 1
+      Steps90X: 1
+      Steps90Y: 1
+      Steps90Z: 1
+  - BlockType: 0
+    BlockColor: 3
+    Position: {x: -0.1, y: 0, z: 0.1}
+    Rotation: {x: 0, y: 0, z: 0, w: 1}
+    AllowedRotations:
+      FlipX: 1
+      FlipY: 1
+      FlipZ: 1
+      Steps90X: 1
+      Steps90Y: 1
+      Steps90Z: 1
+  - BlockType: 4
+    BlockColor: 5
+    Position: {x: -0.075, y: 0.075, z: 0.1}
+    Rotation: {x: 0, y: 0, z: 0, w: 1}
+    AllowedRotations:
+      FlipX: 1
+      FlipY: 1
+      FlipZ: 1
+      Steps90X: 1
+      Steps90Y: 1
+      Steps90Z: 1
+  - BlockType: 3
+    BlockColor: 6
+    Position: {x: 0, y: 0.325, z: 0.055}
+    Rotation: {x: 0, y: 0.70710677, z: 0, w: 0.70710677}
+    AllowedRotations:
+      FlipX: 1
+      FlipY: 1
+      FlipZ: 1
+      Steps90X: 1
+      Steps90Y: 1
+      Steps90Z: 1
+  - BlockType: 4
+    BlockColor: 5
+    Position: {x: -0.075, y: 0.075, z: 0}
+    Rotation: {x: 0, y: 0, z: 0, w: 1}
+    AllowedRotations:
+      FlipX: 1
+      FlipY: 1
+      FlipZ: 1
+      Steps90X: 1
+      Steps90Y: 1
+      Steps90Z: 1
+  - BlockType: 3
+    BlockColor: 6
+    Position: {x: 0.1, y: 0.325, z: 0.055}
+    Rotation: {x: 0, y: 0.70710677, z: 0, w: 0.70710677}
+    AllowedRotations:
+      FlipX: 1
+      FlipY: 1
+      FlipZ: 1
+      Steps90X: 1
+      Steps90Y: 1
+      Steps90Z: 1
+  - BlockType: 5
+    BlockColor: 4
+    Position: {x: 0, y: 0.5, z: 0}
+    Rotation: {x: 0, y: 0.70710677, z: 0, w: 0.70710677}
     AllowedRotations:
       FlipX: 1
       FlipY: 1
