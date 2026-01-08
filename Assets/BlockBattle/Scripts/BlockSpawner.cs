@@ -34,6 +34,20 @@ namespace BlockBattle
         [SerializeField, Tooltip("Spawn configuration to use (if UseConfiguration is true)")]
         private BlockSpawnConfiguration m_SpawnConfiguration;
 
+        /// <summary>
+        /// Gets or sets the spawn configuration used for configuration-based spawning.
+        /// Setting this automatically enables UseConfiguration mode.
+        /// </summary>
+        public BlockSpawnConfiguration SpawnConfiguration
+        {
+            get => m_SpawnConfiguration;
+            set
+            {
+                m_SpawnConfiguration = value;
+                m_UseConfiguration = value != null;
+            }
+        }
+
         [Header("Spawn Settings")]
         [SerializeField, Tooltip("Delay between spawning each block (in seconds). Set to 0 to spawn all at once.")]
         private float m_SpawnDelay = 0.2f;
@@ -538,6 +552,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Applies a color material to a block.
+        /// Finds all MeshRenderers in the block hierarchy and applies the colored material.
         /// </summary>
         /// <param name="block">The block GameObject</param>
         /// <param name="blockColor">The color to apply</param>
@@ -567,16 +582,37 @@ namespace BlockBattle
                 return;
             }
 
-            // Apply material to the block's visuals
-            Transform visuals = block.transform.Find("Visuals");
-            if (visuals != null)
+            // Find all MeshRenderers in the block (including children)
+            // This handles blocks with different child naming conventions (e.g., "Visuals", "Arch", etc.)
+            MeshRenderer[] renderers = block.GetComponentsInChildren<MeshRenderer>(true);
+            
+            if (renderers == null || renderers.Length == 0)
             {
-                MeshRenderer renderer = visuals.GetComponent<MeshRenderer>();
+                // Fallback: try the old method for backwards compatibility
+                Transform visuals = block.transform.Find("Visuals");
+                if (visuals != null)
+                {
+                    MeshRenderer renderer = visuals.GetComponent<MeshRenderer>();
+                    if (renderer != null)
+                    {
+                        renderer.material = coloredMaterial;
+                        return;
+                    }
+                }
+                Debug.LogWarning($"BlockSpawner: No MeshRenderers found in block {block.name}");
+                return;
+            }
+
+            // Apply material to all renderers
+            foreach (MeshRenderer renderer in renderers)
+            {
                 if (renderer != null)
                 {
-                    renderer.material = coloredMaterial; // Use material (not sharedMaterial) to create instance
+                    renderer.material = coloredMaterial;
                 }
             }
+            
+            Debug.Log($"BlockSpawner: Applied {blockColor} material to {renderers.Length} renderer(s) on {block.name}");
         }
     }
 }

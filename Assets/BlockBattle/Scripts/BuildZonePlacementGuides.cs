@@ -40,10 +40,15 @@ namespace BlockBattle
         [SerializeField]
         private Color m_FilledGuideColor = new Color(0f, 1f, 0f, 0.5f);
 
+        [Header("Duplicate Prevention")]
+        [SerializeField, Tooltip("Minimum XZ distance between guide centers. Guides closer than this to an existing guide will be skipped.")]
+        private float m_MinGuideSpacing = 0.05f; // 5cm minimum spacing to prevent visual overlap
+
         // Runtime data
         private List<PlacementGuide> m_Guides = new List<PlacementGuide>();
         private GameObject m_GuidesContainer;
         private bool m_Initialized = false;
+        private ReferenceStructureSpawner m_ReferenceSpawner;
 
         /// <summary>
         /// Data for a single placement guide.
@@ -65,14 +70,39 @@ namespace BlockBattle
         {
             if (m_BuildValidator == null)
             {
-                m_BuildValidator = FindObjectOfType<BuildValidator>();
+                m_BuildValidator = FindAnyObjectByType<BuildValidator>();
             }
             if (m_BuildZone == null)
             {
-                m_BuildZone = FindObjectOfType<BuildZone>();
+                m_BuildZone = FindAnyObjectByType<BuildZone>();
+            }
+
+            // Subscribe to structure spawn events to update guides when structure changes
+            if (m_ReferenceSpawner == null)
+            {
+                m_ReferenceSpawner = FindAnyObjectByType<ReferenceStructureSpawner>();
+            }
+            if (m_ReferenceSpawner != null)
+            {
+                m_ReferenceSpawner.OnStructureSpawned += OnStructureSpawned;
             }
 
             CreateGuides();
+        }
+
+        /// <summary>
+        /// Called when a new reference structure is spawned. Refreshes the guides.
+        /// </summary>
+        private void OnStructureSpawned(BlockSpawnConfiguration config)
+        {
+            // Update validator's reference configuration if needed
+            if (m_BuildValidator != null && config != null)
+            {
+                m_BuildValidator.ReferenceConfiguration = config;
+            }
+            
+            // Refresh guides for the new structure
+            RefreshGuides();
         }
 
         private void Update()
@@ -92,10 +122,39 @@ namespace BlockBattle
                 return;
             }
 
-            // Clean up existing guides
+            // Prevent duplicate creation - if already initialized and container exists, skip
+            if (m_Initialized && m_GuidesContainer != null)
+            {
+                Debug.LogWarning("BuildZonePlacementGuides: Guides already created. Call RefreshGuides() to recreate.");
+                return;
+            }
+
+            // Clean up existing guides immediately
             if (m_GuidesContainer != null)
             {
+                // Clean up materials first
+                foreach (var guide in m_Guides)
+                {
+                    if (guide != null && guide.Material != null)
+                    {
+                        Destroy(guide.Material);
+                    }
+                }
+                
+                // Destroy container immediately in editor, deferred in play mode
+                #if UNITY_EDITOR
+                if (!Application.isPlaying)
+                {
+                    DestroyImmediate(m_GuidesContainer);
+                }
+                else
+                {
+                    Destroy(m_GuidesContainer);
+                }
+                #else
                 Destroy(m_GuidesContainer);
+                #endif
+                m_GuidesContainer = null;
             }
 
             m_Guides.Clear();
@@ -108,17 +167,40 @@ namespace BlockBattle
 
             // Calculate reference center (same as BuildValidator)
             Vector3 referenceCenter = Vector3.zero;
+            int validEntryCount = 0;
             foreach (var entry in entries)
             {
-                if (entry != null)
+                if (entry != null && IsValidVector(entry.Position))
                 {
                     referenceCenter += entry.Position;
+                    validEntryCount++;
                 }
             }
-            referenceCenter /= entries.Count;
+            
+            if (validEntryCount == 0)
+            {
+                Debug.LogWarning("BuildZonePlacementGuides: No valid entries found, cannot calculate reference center");
+                return;
+            }
+            
+            referenceCenter /= validEntryCount;
+            
+            // Validate reference center
+            if (!IsValidVector(referenceCenter))
+            {
+                Debug.LogWarning("BuildZonePlacementGuides: Invalid reference center calculated, using zero");
+                referenceCenter = Vector3.zero;
+            }
 
             // Get build zone position
             Vector3 buildZonePos = m_BuildZone != null ? m_BuildZone.transform.position : transform.position;
+            
+            // Validate build zone position
+            if (!IsValidVector(buildZonePos))
+            {
+                Debug.LogWarning("BuildZonePlacementGuides: Invalid build zone position, using zero");
+                buildZonePos = Vector3.zero;
+            }
 
             // Get structure scale and height offset from BuildValidator (if available)
             float structureScale = 1.0f;
@@ -127,6 +209,27 @@ namespace BlockBattle
             {
                 structureScale = m_BuildValidator.StructureScale;
                 heightOffset = m_BuildValidator.HeightOffset;
+            }
+            
+            // Validate scale and offset values
+            if (float.IsNaN(structureScale) || float.IsInfinity(structureScale) || structureScale <= 0f)
+            {
+                Debug.LogWarning($"BuildZonePlacementGuides: Invalid structure scale {structureScale}, using 1.0");
+                structureScale = 1.0f;
+            }
+            
+            if (float.IsNaN(heightOffset) || float.IsInfinity(heightOffset))
+            {
+                Debug.LogWarning($"BuildZonePlacementGuides: Invalid height offset {heightOffset}, using 0.0");
+                heightOffset = 0f;
+            }
+            
+            // Apply same single-block adjustment as BuildValidator for consistency
+            // Single-block structures at Y=0 need a smaller height offset since the block sits directly on floor
+            if (entries.Count == 1 && Mathf.Abs(referenceCenter.y) < 0.01f)
+            {
+                heightOffset = 0.05f;
+                Debug.Log($"BuildZonePlacementGuides: Single-block structure at Y=0, using adjusted height offset: {heightOffset}m");
             }
 
             // Find ground level (lowest Y position in reference structure)
@@ -140,6 +243,9 @@ namespace BlockBattle
             }
 
             // Create a guide for each block (only for ground-level blocks)
+            // Track XZ positions to detect potential overlaps (guides are on the floor, so only XZ matters)
+            List<Vector2> createdXZPositions = new List<Vector2>();
+            
             foreach (var entry in entries)
             {
                 if (entry == null) continue;
@@ -152,16 +258,67 @@ namespace BlockBattle
                     continue;
                 }
 
+                // Validate entry position
+                if (!IsValidVector(entry.Position))
+                {
+                    Debug.LogWarning($"BuildZonePlacementGuides: Invalid position for {entry.BlockType} ({entry.BlockColor}), skipping");
+                    continue;
+                }
+
                 // Calculate world position for this guide (apply structure scale and height offset)
                 Vector3 relativePos = (entry.Position - referenceCenter) * structureScale;
                 relativePos.y += heightOffset; // Apply height offset to align with table
+                
+                // Validate relative position
+                if (!IsValidVector(relativePos))
+                {
+                    Debug.LogWarning($"BuildZonePlacementGuides: Invalid relative position calculated for {entry.BlockType} ({entry.BlockColor}), skipping");
+                    continue;
+                }
+                
                 Vector3 guideWorldPos = buildZonePos + relativePos;
                 guideWorldPos.y = buildZonePos.y + m_GuideHeight; // Place on floor
 
+                // Validate world position before creating guide
+                if (!IsValidVector(guideWorldPos))
+                {
+                    Debug.LogWarning($"BuildZonePlacementGuides: Invalid world position calculated for {entry.BlockType} ({entry.BlockColor}) at {guideWorldPos}, skipping");
+                    continue;
+                }
+
+                // Check for XZ position overlap with existing guides (Y doesn't matter since all guides are on floor)
+                Vector2 xzPos = new Vector2(guideWorldPos.x, guideWorldPos.z);
+                bool isTooClose = false;
+                foreach (var existingXZ in createdXZPositions)
+                {
+                    float xzDistance = Vector2.Distance(xzPos, existingXZ);
+                    if (xzDistance < m_MinGuideSpacing)
+                    {
+                        Debug.Log($"BuildZonePlacementGuides: Guide for {entry.BlockType} ({entry.BlockColor}) at XZ=({xzPos.x:F3}, {xzPos.y:F3}) is too close to existing guide (distance: {xzDistance:F3}m < {m_MinGuideSpacing}m). Skipping to prevent overlap.");
+                        isTooClose = true;
+                        break;
+                    }
+                }
+                
+                if (isTooClose)
+                {
+                    continue;
+                }
+                
+                createdXZPositions.Add(xzPos);
+
                 // Create the guide marker
                 PlacementGuide guide = CreateGuideMarker(entry, guideWorldPos, structureScale);
-                guide.ExpectedRelativePosition = relativePos; // Store expected relative position for matching
-                m_Guides.Add(guide);
+                if (guide != null)
+                {
+                    guide.ExpectedRelativePosition = relativePos; // Store expected relative position for matching
+                    m_Guides.Add(guide);
+                    Debug.Log($"BuildZonePlacementGuides: Created guide for {entry.BlockType} ({entry.BlockColor}) at {guideWorldPos}");
+                }
+                else
+                {
+                    Debug.LogWarning($"BuildZonePlacementGuides: Failed to create guide marker for {entry.BlockType} ({entry.BlockColor})");
+                }
             }
 
             m_Initialized = true;
@@ -175,6 +332,25 @@ namespace BlockBattle
         /// </summary>
         private PlacementGuide CreateGuideMarker(BlockSpawnEntry entry, Vector3 worldPosition, float structureScale)
         {
+            // Validate inputs
+            if (entry == null)
+            {
+                Debug.LogWarning("BuildZonePlacementGuides: Cannot create guide marker for null entry");
+                return null;
+            }
+            
+            if (!IsValidVector(worldPosition))
+            {
+                Debug.LogWarning($"BuildZonePlacementGuides: Cannot create guide marker at invalid position {worldPosition}");
+                return null;
+            }
+            
+            if (float.IsNaN(structureScale) || float.IsInfinity(structureScale) || structureScale <= 0f)
+            {
+                Debug.LogWarning($"BuildZonePlacementGuides: Invalid structure scale {structureScale} for guide marker");
+                structureScale = 1.0f;
+            }
+            
             PlacementGuide guide = new PlacementGuide
             {
                 BlockType = entry.BlockType,
@@ -427,6 +603,12 @@ namespace BlockBattle
 
         private void OnDestroy()
         {
+            // Unsubscribe from events
+            if (m_ReferenceSpawner != null)
+            {
+                m_ReferenceSpawner.OnStructureSpawned -= OnStructureSpawned;
+            }
+            
             // Clean up materials
             foreach (var guide in m_Guides)
             {
@@ -441,6 +623,15 @@ namespace BlockBattle
             {
                 Destroy(m_GuidesContainer);
             }
+        }
+
+        /// <summary>
+        /// Checks if a Vector3 has valid (finite, non-NaN) values.
+        /// </summary>
+        private bool IsValidVector(Vector3 v)
+        {
+            return !float.IsNaN(v.x) && !float.IsNaN(v.y) && !float.IsNaN(v.z) &&
+                   !float.IsInfinity(v.x) && !float.IsInfinity(v.y) && !float.IsInfinity(v.z);
         }
 
         private void OnDrawGizmosSelected()
@@ -475,4 +666,5 @@ namespace BlockBattle
         }
     }
 }
+
 

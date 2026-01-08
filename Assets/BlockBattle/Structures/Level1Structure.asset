@@ -75,7 +75,7 @@ MonoBehaviour:
     Position: {x: 0, y: 0.235, z: 0}
     Rotation: {x: -0.70710677, y: 0, z: 0, w: 0.70710677}
     AllowedRotations:
-      FlipX: 0
+      FlipX: 1
       FlipY: 1
       FlipZ: 0
       Steps90X: 0

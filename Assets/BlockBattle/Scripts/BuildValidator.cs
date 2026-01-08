@@ -188,7 +188,7 @@ namespace BlockBattle
 
             // Find dependencies
             if (m_Table == null) m_Table = GameObject.Find("Table");
-            if (m_BuildZone == null) m_BuildZone = FindObjectOfType<BuildZone>();
+            if (m_BuildZone == null) m_BuildZone = FindAnyObjectByType<BuildZone>();
 
             if (m_Table == null && m_BuildZone == null)
             {
@@ -224,10 +224,8 @@ namespace BlockBattle
                 Debug.Log($"BuildValidator: Single-block structure detected at Y=0, using adjusted height offset: {m_EffectiveHeightOffset}m (instead of {m_HeightOffset}m)");
             }
 
-            Debug.Log($"=== BUILD VALIDATION ===");
-            Debug.Log($"Placed blocks: {placedBlocks.Count}, Reference blocks: {referenceEntries.Count}");
-            Debug.Log($"Build center (zone): {buildCenter}");
-            Debug.Log($"Reference center (config): {referenceCenter}");
+            // Minimal logging - only on significant changes or errors
+            // Debug.Log($"=== BUILD VALIDATION: {placedBlocks.Count} placed, {referenceEntries.Count} reference ===");
             if (m_BuildZone != null)
             {
                 Debug.Log($"Build zone position: {m_BuildZone.transform.position}");
@@ -258,16 +256,12 @@ namespace BlockBattle
             else if (!m_AutoAlignToBuild)
             {
                 // Use fixed rotation (for placement guides mode)
-                // Force rotation validation ON when using fixed rotation/placement guides
-                Debug.Log($"[PLACEMENT GUIDES MODE] Using fixed rotation {m_FixedRotation}° with FORCED rotation validation");
-                
-                bool originalValidateRotation = m_ValidateRotation;
-                m_ValidateRotation = true; // Always validate rotation in placement guides mode
+                // Respect the user's m_ValidateRotation setting - don't force it ON
+                // This allows users to choose whether rotation matters when using placement guides
+                Debug.Log($"[PLACEMENT GUIDES MODE] Using fixed rotation {m_FixedRotation}°, rotation validation: {(m_ValidateRotation ? "ON" : "OFF")}");
                 
                 m_LastBestRotation = m_FixedRotation;
                 MatchBlocksWithPosition(placedBlocks, referenceEntries, buildCenter, referenceCenter, result, m_FixedRotation);
-                
-                m_ValidateRotation = originalValidateRotation; // Restore original setting
             }
             else
             {
@@ -293,7 +287,7 @@ namespace BlockBattle
         private List<GameObject> CollectPlacedBlocks()
         {
             List<GameObject> placedBlocks = new List<GameObject>();
-            XRGrabInteractable[] allInteractables = FindObjectsOfType<XRGrabInteractable>();
+            XRGrabInteractable[] allInteractables = FindObjectsByType<XRGrabInteractable>(FindObjectsSortMode.None);
 
             foreach (XRGrabInteractable interactable in allInteractables)
             {
@@ -616,8 +610,6 @@ namespace BlockBattle
                     .Where(b => GetBlockType(b) == groupType && GetBlockColor(b) == groupColor)
                     .ToList();
 
-                Debug.Log($"  Group {groupType} ({groupColor}): {refEntries.Count} reference, {matchingPlaced.Count} placed");
-
                 // Calculate expected positions for this group (with rotation offset)
                 var expectedPositions = new List<Vector3>();
                 Quaternion rotOffset = Quaternion.Euler(0, yRotationOffset, 0);
@@ -659,13 +651,22 @@ namespace BlockBattle
                         // Apply rotation offset to expected rotation as well
                         Quaternion expectedRotation = rotOffset * refEntry.Rotation;
                         float rotationError = CalculateRotationError(matchedBlock.transform.rotation, expectedRotation, refEntry.AllowedRotations);
+                        
+                        // PIVOT COMPENSATION: Blocks with FlipY allowed often have off-center pivots
+                        // (especially custom Blender imports like arches). When flipped, the pivot shifts
+                        // but the visual position stays roughly the same. Use increased tolerance for these.
+                        RotationRules rules = refEntry.AllowedRotations ?? new RotationRules();
+                        bool hasSymmetricRotation = rules.FlipX || rules.FlipY || rules.FlipZ;
+                        float effectivePosTolerance = hasSymmetricRotation 
+                            ? m_PositionTolerance * 2.5f  // More forgiving for blocks that can flip
+                            : m_PositionTolerance;
 
                         blockResult.PlacedBlock = matchedBlock;
                         blockResult.IsPresent = true;
                         blockResult.ActualRelativePosition = placedRelativePos;
                         blockResult.PositionError = posError;
                         blockResult.RotationError = rotationError;
-                        blockResult.IsPositionCorrect = posError <= m_PositionTolerance;
+                        blockResult.IsPositionCorrect = posError <= effectivePosTolerance;
                         blockResult.IsRotationCorrect = !m_ValidateRotation || rotationError <= m_RotationTolerance;
                         blockResult.IsCorrect = blockResult.IsPositionCorrect && blockResult.IsRotationCorrect;
 
@@ -680,7 +681,8 @@ namespace BlockBattle
                         string status = blockResult.IsCorrect ? "[OK]" : 
                                        (blockResult.IsPositionCorrect ? "[ROT FAIL]" : "[POS FAIL]");
                         string rotDetails = m_ValidateRotation ? $", RotErr={rotationError:F1}° (need <{m_RotationTolerance}°)" : "";
-                        Debug.Log($"    {status} #{i}: PosErr={posError:F3}m (need <{m_PositionTolerance}m){rotDetails}");
+                        string posDetails = hasSymmetricRotation ? $" (extended tolerance: {effectivePosTolerance:F3}m)" : "";
+                        Debug.Log($"    {status} #{i}: PosErr={posError:F3}m (need <{effectivePosTolerance:F3}m){posDetails}{rotDetails}");
                     }
                     else
                     {
@@ -953,35 +955,42 @@ namespace BlockBattle
 
         /// <summary>
         /// Calculates rotation error based on the block's rotation rules (boolean flags).
-        /// Builds valid orientations from the 6 boolean flags.
+        /// Tests if the actual rotation matches any allowed variant of the expected rotation.
         /// </summary>
         private float CalculateRotationError(Quaternion actual, Quaternion expected, RotationRules rules)
         {
             float minAngle = Quaternion.Angle(actual, expected);
             
-            // If no rules provided, use default (allow all flips and Y rotation)
+            // If no rules provided, use restrictive default
             if (rules == null)
             {
-                rules = new RotationRules();
+                rules = new RotationRules { FlipX = false, FlipY = false, FlipZ = false, Steps90X = false, Steps90Y = false, Steps90Z = false };
             }
             
             // Build list of allowed rotations based on flags
-            // Determine allowed angles for each axis
             int[] xAngles = rules.Steps90X ? new[] { 0, 90, 180, 270 } : (rules.FlipX ? new[] { 0, 180 } : new[] { 0 });
             int[] yAngles = rules.Steps90Y ? new[] { 0, 90, 180, 270 } : (rules.FlipY ? new[] { 0, 180 } : new[] { 0 });
             int[] zAngles = rules.Steps90Z ? new[] { 0, 90, 180, 270 } : (rules.FlipZ ? new[] { 0, 180 } : new[] { 0 });
             
-            // Generate all combinations and find minimum angle
+            // Only use ONE method: expected * orientation (apply allowed rotation in local space)
+            // This is the correct interpretation: the block can be rotated from its expected 
+            // orientation by any of the allowed amounts
             foreach (int x in xAngles)
             {
                 foreach (int y in yAngles)
                 {
                     foreach (int z in zAngles)
                     {
-                        Quaternion orientation = Quaternion.Euler(x, y, z);
-                        float angle = Quaternion.Angle(actual, expected * orientation);
+                        if (x == 0 && y == 0 && z == 0) continue; // Skip identity, already checked
+                        
+                        Quaternion allowedRotation = Quaternion.Euler(x, y, z);
+                        Quaternion validOrientation = expected * allowedRotation;
+                        float angle = Quaternion.Angle(actual, validOrientation);
+                        
                         if (angle < minAngle)
+                        {
                             minAngle = angle;
+                        }
                     }
                 }
             }
@@ -1129,31 +1138,43 @@ namespace BlockBattle
 
         private BlockColor GetBlockColor(GameObject block)
         {
-            Transform visuals = block.transform.Find("Visuals");
-            MeshRenderer renderer = visuals?.GetComponent<MeshRenderer>() 
-                                 ?? block.GetComponent<MeshRenderer>()
-                                 ?? block.GetComponentInChildren<MeshRenderer>();
-
-            if (renderer != null)
+            if (block == null) return BlockColor.Natural;
+            
+            // FIRST: Check the block's name - this is the most reliable since spawner sets it
+            // e.g., "Block_Rectangle_DarkGreen_Spawned" contains "DarkGreen"
+            string blockName = block.name;
+            
+            // Check longer/more specific color names FIRST to avoid "Green" matching "DarkGreen"
+            if (blockName.Contains("DarkGreen")) return BlockColor.DarkGreen;
+            if (blockName.Contains("Natural")) return BlockColor.Natural;
+            if (blockName.Contains("Red")) return BlockColor.Red;
+            if (blockName.Contains("Green")) return BlockColor.Green;
+            if (blockName.Contains("Yellow")) return BlockColor.Yellow;
+            if (blockName.Contains("Blue")) return BlockColor.Blue;
+            if (blockName.Contains("Orange")) return BlockColor.Orange;
+            
+            // FALLBACK: Check material names if block name didn't have color info
+            MeshRenderer[] renderers = block.GetComponentsInChildren<MeshRenderer>(true);
+            
+            if (renderers != null && renderers.Length > 0)
             {
-                Material mat = renderer.sharedMaterial ?? renderer.material;
-                if (mat != null)
+                foreach (MeshRenderer renderer in renderers)
                 {
+                    if (renderer == null) continue;
+                    
+                    Material mat = renderer.material ?? renderer.sharedMaterial;
+                    if (mat == null) continue;
+                    
                     string materialName = mat.name.Replace(" (Instance)", "");
                     
-                    foreach (BlockColor color in System.Enum.GetValues(typeof(BlockColor)))
-                    {
-                        if (materialName.Contains(color.ToString()))
-                            return color;
-                    }
-
-                    string lowerName = materialName.ToLower();
-                    if (lowerName.Contains("red")) return BlockColor.Red;
-                    if (lowerName.Contains("darkgreen")) return BlockColor.DarkGreen;
-                    if (lowerName.Contains("green")) return BlockColor.Green;
-                    if (lowerName.Contains("blue")) return BlockColor.Blue;
-                    if (lowerName.Contains("yellow")) return BlockColor.Yellow;
-                    if (lowerName.Contains("orange")) return BlockColor.Orange;
+                    // Check longer names first to avoid substring false matches
+                    if (materialName.Contains("DarkGreen")) return BlockColor.DarkGreen;
+                    if (materialName.Contains("Natural")) return BlockColor.Natural;
+                    if (materialName.Contains("Red")) return BlockColor.Red;
+                    if (materialName.Contains("Green")) return BlockColor.Green;
+                    if (materialName.Contains("Yellow")) return BlockColor.Yellow;
+                    if (materialName.Contains("Blue")) return BlockColor.Blue;
+                    if (materialName.Contains("Orange")) return BlockColor.Orange;
                 }
             }
 

@@ -20,6 +20,7 @@ namespace BlockBattle
         [SerializeField] private RectTransform m_ProgressBarFill;
         [SerializeField] private Image m_ProgressBarFillImage;
         [SerializeField] private TextMeshProUGUI m_PercentageText;
+        [SerializeField] private TextMeshProUGUI m_LevelText;
 
         [Header("Block Indicator Settings")]
         [SerializeField] private float m_IndicatorSize = 60f;
@@ -70,9 +71,9 @@ namespace BlockBattle
         {
             // Find references
             if (m_BuildValidator == null)
-                m_BuildValidator = FindObjectOfType<BuildValidator>();
+                m_BuildValidator = FindAnyObjectByType<BuildValidator>();
             if (m_ReferenceSpawner == null)
-                m_ReferenceSpawner = FindObjectOfType<ReferenceStructureSpawner>();
+                m_ReferenceSpawner = FindAnyObjectByType<ReferenceStructureSpawner>();
 
             // Auto-find fill image if not assigned but RectTransform is
             if (m_ProgressBarFillImage == null && m_ProgressBarFill != null)
@@ -579,6 +580,35 @@ namespace BlockBattle
                 indicator.Container.transform.localScale = Vector3.one;
             }
         }
+
+        /// <summary>
+        /// Sets the level text display.
+        /// </summary>
+        /// <param name="levelNumber">The current level number to display</param>
+        public void SetLevelText(int levelNumber)
+        {
+            if (m_LevelText != null)
+            {
+                m_LevelText.text = $"Level {levelNumber}";
+            }
+        }
+
+        /// <summary>
+        /// Sets the level text display with custom text.
+        /// </summary>
+        /// <param name="text">The text to display</param>
+        public void SetLevelText(string text)
+        {
+            if (m_LevelText != null)
+            {
+                m_LevelText.text = text;
+            }
+        }
+
+        /// <summary>
+        /// Gets the level text component for external use.
+        /// </summary>
+        public TextMeshProUGUI LevelTextComponent => m_LevelText;
     }
 }
 

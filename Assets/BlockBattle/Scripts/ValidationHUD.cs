@@ -62,13 +62,13 @@ namespace BlockBattle
         private void Start()
         {
             m_Transform = transform;
-            m_Camera = Camera.main ?? FindObjectOfType<Camera>();
+            m_Camera = Camera.main ?? FindAnyObjectByType<Camera>();
 
             if (m_BuildValidator == null)
-                m_BuildValidator = FindObjectOfType<BuildValidator>();
+                m_BuildValidator = FindAnyObjectByType<BuildValidator>();
 
             if (m_ReferenceSpawner == null)
-                m_ReferenceSpawner = FindObjectOfType<ReferenceStructureSpawner>();
+                m_ReferenceSpawner = FindAnyObjectByType<ReferenceStructureSpawner>();
 
             if (m_ReferenceSpawner != null)
             {

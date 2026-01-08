@@ -23,8 +23,8 @@ MonoBehaviour:
       FlipX: 1
       FlipY: 1
       FlipZ: 1
-      Steps90X: 0
-      Steps90Y: 0
+      Steps90X: 1
+      Steps90Y: 1
       Steps90Z: 1
   - BlockType: 0
     BlockColor: 2
@@ -61,56 +61,56 @@ MonoBehaviour:
       Steps90Z: 1
   - BlockType: 4
     BlockColor: 5
-    Position: {x: -0.075, y: 0.075, z: 0.1}
+    Position: {x: 0.05, y: 0.16, z: 0.1}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
     AllowedRotations:
-      FlipX: 1
+      FlipX: 0
       FlipY: 1
-      FlipZ: 1
-      Steps90X: 1
-      Steps90Y: 1
-      Steps90Z: 1
+      FlipZ: 0
+      Steps90X: 0
+      Steps90Y: 0
+      Steps90Z: 0
   - BlockType: 3
     BlockColor: 6
-    Position: {x: 0, y: 0.325, z: 0.055}
+    Position: {x: 0, y: 0.318, z: 0.055}
     Rotation: {x: 0, y: 0.70710677, z: 0, w: 0.70710677}
     AllowedRotations:
       FlipX: 1
       FlipY: 1
       FlipZ: 1
       Steps90X: 1
-      Steps90Y: 1
-      Steps90Z: 1
+      Steps90Y: 0
+      Steps90Z: 0
   - BlockType: 4
     BlockColor: 5
-    Position: {x: -0.075, y: 0.075, z: 0}
+    Position: {x: 0.05, y: 0.16, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
     AllowedRotations:
-      FlipX: 1
+      FlipX: 0
       FlipY: 1
-      FlipZ: 1
-      Steps90X: 1
-      Steps90Y: 1
-      Steps90Z: 1
+      FlipZ: 0
+      Steps90X: 0
+      Steps90Y: 0
+      Steps90Z: 0
   - BlockType: 3
     BlockColor: 6
-    Position: {x: 0.1, y: 0.325, z: 0.055}
+    Position: {x: 0.1, y: 0.318, z: 0.055}
     Rotation: {x: 0, y: 0.70710677, z: 0, w: 0.70710677}
     AllowedRotations:
       FlipX: 1
       FlipY: 1
       FlipZ: 1
       Steps90X: 1
-      Steps90Y: 1
-      Steps90Z: 1
+      Steps90Y: 0
+      Steps90Z: 0
   - BlockType: 5
     BlockColor: 4
-    Position: {x: 0, y: 0.5, z: 0}
-    Rotation: {x: 0, y: 0.70710677, z: 0, w: 0.70710677}
+    Position: {x: 0.05, y: 0.41, z: 0.05}
+    Rotation: {x: -0.70710677, y: 0, z: 0, w: 0.70710677}
     AllowedRotations:
-      FlipX: 1
-      FlipY: 1
+      FlipX: 0
+      FlipY: 0
       FlipZ: 1
-      Steps90X: 1
-      Steps90Y: 1
-      Steps90Z: 1
+      Steps90X: 0
+      Steps90Y: 0
+      Steps90Z: 0

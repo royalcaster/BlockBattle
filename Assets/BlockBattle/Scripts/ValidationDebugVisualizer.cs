@@ -61,10 +61,10 @@ namespace BlockBattle
         private void Start()
         {
             if (m_BuildValidator == null)
-                m_BuildValidator = FindObjectOfType<BuildValidator>();
+                m_BuildValidator = FindAnyObjectByType<BuildValidator>();
             
             if (m_BuildZone == null)
-                m_BuildZone = FindObjectOfType<BuildZone>();
+                m_BuildZone = FindAnyObjectByType<BuildZone>();
 
             CreateCenterMarker();
         }
