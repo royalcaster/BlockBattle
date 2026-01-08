@@ -74,6 +74,10 @@ namespace BlockBattle
             {
                 return BlockType.Cylinder;
             }
+            else if (name.Contains("bigtriangle") || (name.Contains("big") && name.Contains("triangle")))
+            {
+                return BlockType.BigTriangle;
+            }
             else if (name.Contains("triangle"))
             {
                 return BlockType.Triangle;
@@ -93,6 +97,7 @@ namespace BlockBattle
             if (prefabAsset != null)
             {
                 string prefabName = prefabAsset.name.ToLower();
+                
                 if (prefabName.Contains("cube"))
                 {
                     return BlockType.Cube;
@@ -100,6 +105,10 @@ namespace BlockBattle
                 else if (prefabName.Contains("cylinder"))
                 {
                     return BlockType.Cylinder;
+                }
+                else if (prefabName.Contains("bigtriangle") || (prefabName.Contains("big") && prefabName.Contains("triangle")))
+                {
+                    return BlockType.BigTriangle;
                 }
                 else if (prefabName.Contains("triangle"))
                 {
@@ -116,7 +125,8 @@ namespace BlockBattle
             }
             #endif
 
-            // Default to Cube if unable to determine
+            // Default to Cube if unable to determine - this is a problem case!
+            Debug.LogWarning($"BlockReference: Could not determine block type for '{gameObject.name}' - defaulting to Cube");
             return BlockType.Cube;
         }
 

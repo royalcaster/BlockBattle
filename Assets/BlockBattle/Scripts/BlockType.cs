@@ -11,7 +11,8 @@ namespace BlockBattle
         Cylinder,
         Triangle,
         Rectangle,
-        Arch
+        Arch,
+        BigTriangle
     }
 }
 

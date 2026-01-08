@@ -43,6 +43,9 @@ namespace BlockBattle
         [SerializeField, Tooltip("Arch block prefab for preview")]
         private GameObject m_ArchBlockPrefab;
 
+        [SerializeField, Tooltip("Big Triangle block prefab for preview")]
+        private GameObject m_BigTriangleBlockPrefab;
+
         private List<GameObject> m_PreviewBlocks = new List<GameObject>();
 
         /// <summary>
@@ -214,6 +217,8 @@ namespace BlockBattle
                     return m_RectangleBlockPrefab;
                 case BlockType.Arch:
                     return m_ArchBlockPrefab;
+                case BlockType.BigTriangle:
+                    return m_BigTriangleBlockPrefab;
                 default:
                     return null;
             }

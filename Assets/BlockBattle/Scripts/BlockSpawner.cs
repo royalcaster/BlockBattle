@@ -34,6 +34,20 @@ namespace BlockBattle
         [SerializeField, Tooltip("Spawn configuration to use (if UseConfiguration is true)")]
         private BlockSpawnConfiguration m_SpawnConfiguration;
 
+        /// <summary>
+        /// Gets or sets the spawn configuration used for configuration-based spawning.
+        /// Setting this automatically enables UseConfiguration mode.
+        /// </summary>
+        public BlockSpawnConfiguration SpawnConfiguration
+        {
+            get => m_SpawnConfiguration;
+            set
+            {
+                m_SpawnConfiguration = value;
+                m_UseConfiguration = value != null;
+            }
+        }
+
         [Header("Spawn Settings")]
         [SerializeField, Tooltip("Delay between spawning each block (in seconds). Set to 0 to spawn all at once.")]
         private float m_SpawnDelay = 0.2f;
@@ -57,6 +71,9 @@ namespace BlockBattle
         [SerializeField, Tooltip("Arch block prefab")]
         private GameObject m_ArchBlockPrefab;
 
+        [SerializeField, Tooltip("Big Triangle block prefab")]
+        private GameObject m_BigTriangleBlockPrefab;
+
         [Header("Spawn Location")]
         [SerializeField, Tooltip("Table GameObject. If null, will search for 'Table' in scene")]
         private GameObject m_Table;
@@ -65,15 +82,27 @@ namespace BlockBattle
         private float m_SpawnHeight = 0.2f;
 
         /// <summary>
-        /// Logs spawner initialization.
+        /// Logs spawner initialization and warns about missing prefabs.
         /// </summary>
         private void Awake()
         {
             Debug.Log($"BlockSpawner: Awake() called. GameObject: {gameObject.name}, Active: {gameObject.activeSelf}, Enabled: {enabled}");
             Debug.Log($"BlockSpawner: SpawnOnStart = {m_SpawnOnStart}, BlocksPerType = {m_BlocksPerType}");
-            Debug.Log($"BlockSpawner: Prefab assignments - Cube: {(m_CubeBlockPrefab != null ? m_CubeBlockPrefab.name : "NULL")}, " +
+            Debug.Log($"BlockSpawner: Prefab assignments - " +
+                      $"Cube: {(m_CubeBlockPrefab != null ? m_CubeBlockPrefab.name : "NULL")}, " +
                       $"Cylinder: {(m_CylinderBlockPrefab != null ? m_CylinderBlockPrefab.name : "NULL")}, " +
-                      $"Triangle: {(m_TriangleBlockPrefab != null ? m_TriangleBlockPrefab.name : "NULL")}");
+                      $"Triangle: {(m_TriangleBlockPrefab != null ? m_TriangleBlockPrefab.name : "NULL")}, " +
+                      $"Rectangle: {(m_RectangleBlockPrefab != null ? m_RectangleBlockPrefab.name : "NULL")}, " +
+                      $"Arch: {(m_ArchBlockPrefab != null ? m_ArchBlockPrefab.name : "NULL")}, " +
+                      $"BigTriangle: {(m_BigTriangleBlockPrefab != null ? m_BigTriangleBlockPrefab.name : "NULL")}");
+            
+            // Warn about missing prefabs
+            if (m_CubeBlockPrefab == null) Debug.LogWarning("BlockSpawner: Cube prefab is not assigned!");
+            if (m_CylinderBlockPrefab == null) Debug.LogWarning("BlockSpawner: Cylinder prefab is not assigned!");
+            if (m_TriangleBlockPrefab == null) Debug.LogWarning("BlockSpawner: Triangle prefab is not assigned!");
+            if (m_RectangleBlockPrefab == null) Debug.LogWarning("BlockSpawner: Rectangle prefab is not assigned!");
+            if (m_ArchBlockPrefab == null) Debug.LogWarning("BlockSpawner: Arch prefab is not assigned!");
+            if (m_BigTriangleBlockPrefab == null) Debug.LogWarning("BlockSpawner: BigTriangle prefab is not assigned!");
         }
 
         /// <summary>
@@ -514,6 +543,8 @@ namespace BlockBattle
                     return m_RectangleBlockPrefab;
                 case BlockType.Arch:
                     return m_ArchBlockPrefab;
+                case BlockType.BigTriangle:
+                    return m_BigTriangleBlockPrefab;
                 default:
                     return null;
             }
@@ -521,6 +552,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Applies a color material to a block.
+        /// Finds all MeshRenderers in the block hierarchy and applies the colored material.
         /// </summary>
         /// <param name="block">The block GameObject</param>
         /// <param name="blockColor">The color to apply</param>
@@ -550,16 +582,37 @@ namespace BlockBattle
                 return;
             }
 
-            // Apply material to the block's visuals
-            Transform visuals = block.transform.Find("Visuals");
-            if (visuals != null)
+            // Find all MeshRenderers in the block (including children)
+            // This handles blocks with different child naming conventions (e.g., "Visuals", "Arch", etc.)
+            MeshRenderer[] renderers = block.GetComponentsInChildren<MeshRenderer>(true);
+            
+            if (renderers == null || renderers.Length == 0)
             {
-                MeshRenderer renderer = visuals.GetComponent<MeshRenderer>();
+                // Fallback: try the old method for backwards compatibility
+                Transform visuals = block.transform.Find("Visuals");
+                if (visuals != null)
+                {
+                    MeshRenderer renderer = visuals.GetComponent<MeshRenderer>();
+                    if (renderer != null)
+                    {
+                        renderer.material = coloredMaterial;
+                        return;
+                    }
+                }
+                Debug.LogWarning($"BlockSpawner: No MeshRenderers found in block {block.name}");
+                return;
+            }
+
+            // Apply material to all renderers
+            foreach (MeshRenderer renderer in renderers)
+            {
                 if (renderer != null)
                 {
-                    renderer.material = coloredMaterial; // Use material (not sharedMaterial) to create instance
+                    renderer.material = coloredMaterial;
                 }
             }
+            
+            Debug.Log($"BlockSpawner: Applied {blockColor} material to {renderers.Length} renderer(s) on {block.name}");
         }
     }
 }

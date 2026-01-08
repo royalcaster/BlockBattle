@@ -43,6 +43,9 @@ namespace BlockBattle
         [SerializeField, Tooltip("Arch block prefab")]
         private GameObject m_ArchBlockPrefab;
 
+        [SerializeField, Tooltip("Big Triangle block prefab")]
+        private GameObject m_BigTriangleBlockPrefab;
+
         [Header("Holographic Effect")]
         [SerializeField, Tooltip("Whether to apply holographic effect to reference structure blocks")]
         private bool m_UseHolographicEffect = true;
@@ -243,8 +246,15 @@ namespace BlockBattle
             // Spawn blocks relative to structure center
             foreach (BlockSpawnEntry entry in m_SpawnConfiguration.SpawnEntries)
             {
+                if (entry == null)
+                {
+                    Debug.LogWarning("ReferenceStructureSpawner: Found null entry in spawn configuration. Skipping.");
+                    continue;
+                }
+                
                 // Adjust position relative to center (subtract center offset)
                 Vector3 relativePosition = entry.Position - structureCenter;
+                Debug.Log($"ReferenceStructureSpawner: Spawning {entry.BlockType} ({entry.BlockColor}) at relative position {relativePosition}");
                 SpawnBlock(entry.BlockType, relativePosition, entry.Rotation, entry.BlockColor);
             }
 
@@ -300,6 +310,11 @@ namespace BlockBattle
                 MakeBlockStatic(block);
                 
                 m_SpawnedBlocks.Add(block);
+                Debug.Log($"ReferenceStructureSpawner: Successfully spawned {blockType} ({blockColor}) - GameObject: {block.name}, Active: {block.activeSelf}, Position: {block.transform.position}");
+            }
+            else
+            {
+                Debug.LogError($"ReferenceStructureSpawner: Failed to instantiate block {blockType} - prefab was null or instantiation failed");
             }
         }
 
@@ -388,6 +403,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Applies a color material to a block.
+        /// Finds all MeshRenderers in the block and applies the colored material to all of them.
         /// </summary>
         /// <param name="block">The block GameObject</param>
         /// <param name="blockColor">The color to apply</param>
@@ -417,11 +433,19 @@ namespace BlockBattle
                 return;
             }
 
-            // Apply material to the block's visuals
-            Transform visuals = block.transform.Find("Visuals");
-            if (visuals != null)
+            // Find all MeshRenderers in the block (including children)
+            // This is more robust than just looking for "Visuals" child
+            MeshRenderer[] renderers = block.GetComponentsInChildren<MeshRenderer>(true);
+            
+            if (renderers == null || renderers.Length == 0)
             {
-                MeshRenderer renderer = visuals.GetComponent<MeshRenderer>();
+                Debug.LogWarning($"ReferenceStructureSpawner: No MeshRenderers found in block {block.name}");
+                return;
+            }
+
+            // Apply material to all renderers
+            foreach (MeshRenderer renderer in renderers)
+            {
                 if (renderer != null)
                 {
                     renderer.material = coloredMaterial; // Use material (not sharedMaterial) to create instance
@@ -580,6 +604,8 @@ namespace BlockBattle
                     return m_RectangleBlockPrefab;
                 case BlockType.Arch:
                     return m_ArchBlockPrefab;
+                case BlockType.BigTriangle:
+                    return m_BigTriangleBlockPrefab;
                 default:
                     return null;
             }
