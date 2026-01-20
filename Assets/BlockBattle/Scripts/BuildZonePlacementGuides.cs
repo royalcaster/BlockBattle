@@ -44,11 +44,16 @@ namespace BlockBattle
         [SerializeField, Tooltip("Minimum XZ distance between guide centers. Guides closer than this to an existing guide will be skipped.")]
         private float m_MinGuideSpacing = 0.05f; // 5cm minimum spacing to prevent visual overlap
 
+        [Header("Material Reference (for builds)")]
+        [SerializeField, Tooltip("Reference material for guides - assign a basic unlit transparent material")]
+        private Material m_GuideMaterialSource;
+
         // Runtime data
         private List<PlacementGuide> m_Guides = new List<PlacementGuide>();
         private GameObject m_GuidesContainer;
         private bool m_Initialized = false;
         private ReferenceStructureSpawner m_ReferenceSpawner;
+        private Shader m_CachedUnlitShader;
 
         /// <summary>
         /// Data for a single placement guide.
@@ -478,7 +483,14 @@ namespace BlockBattle
 
             // Create material with block color tint
             guide.Renderer = marker.GetComponent<MeshRenderer>();
-            guide.Material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            guide.Material = CreateGuideMaterial();
+            
+            if (guide.Material == null)
+            {
+                Debug.LogError("BuildZonePlacementGuides: Failed to create guide material - shader not found in build");
+                Destroy(marker);
+                return null;
+            }
             
             // Tint with block color
             Color blockColor = BlockColorUtility.GetColor(entry.BlockColor);
@@ -499,6 +511,60 @@ namespace BlockBattle
             guide.IsFilled = false;
 
             return guide;
+        }
+
+        /// <summary>
+        /// Creates a material for guide markers with proper fallback for builds.
+        /// Uses serialized material reference if available, then loads from Resources, then tries Shader.Find.
+        /// </summary>
+        private Material CreateGuideMaterial()
+        {
+            // Priority 1: Use serialized material source (most reliable for builds)
+            if (m_GuideMaterialSource != null)
+            {
+                return new Material(m_GuideMaterialSource);
+            }
+
+            // Priority 2: Load GuideMaterial from Resources folder (works in builds)
+            Material guideMat = Resources.Load<Material>("GuideMaterial");
+            if (guideMat != null)
+            {
+                m_GuideMaterialSource = guideMat; // Cache for future use
+                return new Material(guideMat);
+            }
+
+            // Priority 3: Use cached shader if we found one before
+            if (m_CachedUnlitShader != null)
+            {
+                return new Material(m_CachedUnlitShader);
+            }
+
+            // Priority 4: Try to find URP Unlit shader
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader != null)
+            {
+                m_CachedUnlitShader = shader;
+                return new Material(shader);
+            }
+
+            // Priority 5: Try legacy Unlit/Color shader (more likely to be included)
+            shader = Shader.Find("Unlit/Color");
+            if (shader != null)
+            {
+                m_CachedUnlitShader = shader;
+                return new Material(shader);
+            }
+
+            // Priority 6: Last resort - use Sprites/Default which is always included
+            shader = Shader.Find("Sprites/Default");
+            if (shader != null)
+            {
+                m_CachedUnlitShader = shader;
+                return new Material(shader);
+            }
+
+            Debug.LogError("BuildZonePlacementGuides: Could not find any suitable shader for guide materials");
+            return null;
         }
 
         /// <summary>
