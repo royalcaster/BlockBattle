@@ -609,6 +609,46 @@ namespace BlockBattle
         /// Gets the level text component for external use.
         /// </summary>
         public TextMeshProUGUI LevelTextComponent => m_LevelText;
+
+        #region Block Return Phase UI
+
+        /// <summary>
+        /// Shows a message prompting the player to return blocks to the shelf.
+        /// </summary>
+        /// <param name="blockCount">Number of blocks that need to be returned</param>
+        public void ShowReturnBlocksMessage(int blockCount)
+        {
+            if (m_LevelText != null)
+            {
+                m_LevelText.text = $"Return {blockCount} blocks to shelf";
+            }
+        }
+
+        /// <summary>
+        /// Shows the countdown message before the next level starts.
+        /// </summary>
+        /// <param name="secondsRemaining">Seconds remaining until next level</param>
+        public void ShowCountdownMessage(int secondsRemaining)
+        {
+            if (m_LevelText != null)
+            {
+                m_LevelText.text = $"Next level in {secondsRemaining}...";
+            }
+        }
+
+        /// <summary>
+        /// Shows a status message in the level text area.
+        /// </summary>
+        /// <param name="message">The message to display</param>
+        public void ShowStatusMessage(string message)
+        {
+            if (m_LevelText != null)
+            {
+                m_LevelText.text = message;
+            }
+        }
+
+        #endregion
     }
 }
 
