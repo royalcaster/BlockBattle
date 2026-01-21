@@ -610,7 +610,39 @@ namespace BlockBattle
         /// </summary>
         public TextMeshProUGUI LevelTextComponent => m_LevelText;
 
-        #region Block Return Phase UI
+        #region Phase UI Messages
+
+        /// <summary>
+        /// Shows the destruction phase message.
+        /// </summary>
+        /// <param name="blockCount">Number of blocks to knock off</param>
+        public void ShowDestructionMessage(int blockCount)
+        {
+            if (m_LevelText != null)
+            {
+                m_LevelText.text = $"Destroy! {blockCount} blocks on table";
+            }
+        }
+
+        /// <summary>
+        /// Updates the destruction progress display.
+        /// </summary>
+        /// <param name="remainingBlocks">Number of blocks still on the table</param>
+        /// <param name="totalBlocks">Total number of blocks to knock off</param>
+        public void UpdateDestructionProgress(int remainingBlocks, int totalBlocks)
+        {
+            if (m_LevelText != null)
+            {
+                m_LevelText.text = $"Destroy! {remainingBlocks}/{totalBlocks} remaining";
+            }
+
+            // Update progress bar to show destruction progress
+            if (totalBlocks > 0)
+            {
+                float progress = 1f - ((float)remainingBlocks / totalBlocks);
+                m_TargetAccuracy = progress;
+            }
+        }
 
         /// <summary>
         /// Shows a message prompting the player to return blocks to the shelf.

@@ -170,6 +170,58 @@ namespace BlockBattle
                 }
             }
         }
+
+        #region Teleportation
+
+        /// <summary>
+        /// Teleports the player to a specific position and rotation.
+        /// </summary>
+        /// <param name="position">Target world position for the player's feet</param>
+        /// <param name="rotation">Target rotation (Y rotation only, facing direction)</param>
+        public void TeleportPlayer(Vector3 position, Quaternion rotation)
+        {
+            if (m_XROrigin == null)
+            {
+                m_XROrigin = FindFirstObjectByType<XROrigin>();
+                if (m_XROrigin == null)
+                {
+                    Debug.LogError("BlockBattleXRSetup: Cannot teleport - XR Origin not found!");
+                    return;
+                }
+            }
+
+            // Move the XR Origin to the target position
+            m_XROrigin.transform.position = position;
+            
+            // Note: We don't change the XR Origin rotation because head tracking should handle that.
+            // The player will be at the position but facing based on their head orientation.
+            // If you need to force a facing direction, you'd need to rotate the XR Origin,
+            // but that conflicts with our LateUpdate that resets rotation.
+            
+            Debug.Log($"BlockBattleXRSetup: Teleported player to {position}");
+        }
+
+        /// <summary>
+        /// Teleports the player to a transform's position and rotation.
+        /// </summary>
+        /// <param name="target">Target transform</param>
+        public void TeleportPlayer(Transform target)
+        {
+            if (target == null)
+            {
+                Debug.LogError("BlockBattleXRSetup: Cannot teleport - target is null!");
+                return;
+            }
+
+            TeleportPlayer(target.position, target.rotation);
+        }
+
+        /// <summary>
+        /// Gets the current XR Origin reference.
+        /// </summary>
+        public XROrigin XROrigin => m_XROrigin;
+
+        #endregion
     }
 }
 
