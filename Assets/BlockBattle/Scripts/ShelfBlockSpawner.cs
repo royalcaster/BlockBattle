@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 namespace BlockBattle
 {
@@ -89,14 +90,17 @@ namespace BlockBattle
         [SerializeField, Tooltip("Transform whose forward direction defines the base ejection direction. If null, uses this transform's forward.")]
         private Transform m_EjectionDirection;
 
-        [SerializeField, Tooltip("Base force applied to eject blocks")]
-        private float m_EjectionForce = 15f;
+        [SerializeField, Tooltip("Base force applied to eject blocks (lower values = less chance of tunneling through floor)")]
+        private float m_EjectionForce = 8f;
 
         [SerializeField, Range(0f, 1f), Tooltip("How much blocks spread when ejected (0 = straight line, 1 = wide spread)")]
         private float m_SpreadAmount = 0.3f;
 
         [SerializeField, Tooltip("Rotational force applied to blocks for realistic tumbling")]
-        private float m_TumbleForce = 10f;
+        private float m_TumbleForce = 5f;
+
+        [SerializeField, Tooltip("Use continuous collision detection to prevent blocks from passing through floor")]
+        private bool m_UseContinuousCollision = true;
 
         #endregion
 
@@ -137,15 +141,88 @@ namespace BlockBattle
         private void Update()
         {
             MonitorDoors();
+            
+            // Use physics overlap for more reliable block detection
+            // This catches blocks that triggers might miss
+            DetectBlocksInShelf();
+        }
+        
+        /// <summary>
+        /// Detects blocks inside the shelf using Physics.OverlapBox.
+        /// More reliable than OnTriggerStay for slow-moving or resting objects.
+        /// </summary>
+        private void DetectBlocksInShelf()
+        {
+            // Get the box collider bounds
+            BoxCollider boxCollider = GetComponent<BoxCollider>();
+            if (boxCollider == null || !boxCollider.isTrigger)
+                return;
+
+            // Calculate world-space center and half extents
+            Vector3 worldCenter = transform.TransformPoint(boxCollider.center);
+            Vector3 halfExtents = Vector3.Scale(boxCollider.size, transform.lossyScale) * 0.5f;
+
+            // Find all colliders in the box
+            Collider[] colliders = Physics.OverlapBox(worldCenter, halfExtents, transform.rotation);
+
+            // Track which blocks are currently in the shelf
+            HashSet<Rigidbody> currentBlocksInShelf = new HashSet<Rigidbody>();
+
+            foreach (Collider col in colliders)
+            {
+                if (col == boxCollider) continue; // Skip self
+
+                // Get rigidbody from collider or parent
+                Rigidbody rb = col.GetComponent<Rigidbody>();
+                if (rb == null)
+                    rb = col.GetComponentInParent<Rigidbody>();
+                
+                if (rb == null) continue;
+
+                string name = rb.gameObject.name;
+                
+                // Skip reference blocks
+                if (name.StartsWith("ReferenceBlock_") || name.Contains("Reference"))
+                    continue;
+
+                // Check if it's a player block
+                if (name.Contains("Block_") || name.Contains("_Shelf") || name.Contains("_Spawned"))
+                {
+                    currentBlocksInShelf.Add(rb);
+                    
+                    // Add to stored blocks if not already there
+                    if (!_storedBlocks.Contains(rb))
+                    {
+                        _storedBlocks.Add(rb);
+                        Debug.Log($"ShelfBlockSpawner: Block detected in shelf - {name}. Total stored: {_storedBlocks.Count}");
+                    }
+                }
+            }
+
+            // Remove blocks that are no longer in the shelf
+            for (int i = _storedBlocks.Count - 1; i >= 0; i--)
+            {
+                if (_storedBlocks[i] == null || !currentBlocksInShelf.Contains(_storedBlocks[i]))
+                {
+                    if (_storedBlocks[i] != null)
+                    {
+                        Debug.Log($"ShelfBlockSpawner: Block left shelf - {_storedBlocks[i].gameObject.name}. Total stored: {_storedBlocks.Count - 1}");
+                    }
+                    _storedBlocks.RemoveAt(i);
+                }
+            }
         }
 
         private void OnTriggerEnter(Collider other)
         {
-            Rigidbody rb = other.GetComponent<Rigidbody>();
-            if (rb != null && !_storedBlocks.Contains(rb))
-            {
-                _storedBlocks.Add(rb);
-            }
+            TryAddBlockToStorage(other);
+        }
+
+        private void OnTriggerStay(Collider other)
+        {
+            // Use OnTriggerStay for more reliable detection when blocks are
+            // placed slowly or are already inside the trigger
+            TryAddBlockToStorage(other);
         }
 
         private void OnTriggerExit(Collider other)
@@ -154,6 +231,42 @@ namespace BlockBattle
             if (rb != null && _storedBlocks.Contains(rb))
             {
                 _storedBlocks.Remove(rb);
+            }
+        }
+
+        /// <summary>
+        /// Attempts to add a block to the stored blocks list.
+        /// Only adds blocks that are player blocks (not reference blocks).
+        /// </summary>
+        private void TryAddBlockToStorage(Collider other)
+        {
+            // Get rigidbody - check both the collider's object and its parent
+            // (blocks may have collider on child but rigidbody on root)
+            Rigidbody rb = other.GetComponent<Rigidbody>();
+            if (rb == null)
+            {
+                rb = other.GetComponentInParent<Rigidbody>();
+            }
+            
+            if (rb == null)
+                return;
+
+            // Skip if already stored
+            if (_storedBlocks.Contains(rb))
+                return;
+
+            // Get the root object name for checking (rigidbody's gameobject)
+            string name = rb.gameObject.name;
+            
+            // Skip reference blocks (they shouldn't be stored)
+            if (name.StartsWith("ReferenceBlock_") || name.Contains("Reference"))
+                return;
+
+            // Only add player blocks
+            if (name.Contains("Block_") || name.Contains("_Shelf") || name.Contains("_Spawned"))
+            {
+                _storedBlocks.Add(rb);
+                Debug.Log($"ShelfBlockSpawner: Block entered shelf - {name}. Total stored: {_storedBlocks.Count}");
             }
         }
 
@@ -259,6 +372,46 @@ namespace BlockBattle
         public bool HasTriggered => _hasTriggered;
 
         /// <summary>
+        /// Gets whether both doors are closed (below reset angle).
+        /// </summary>
+        public bool AreDoorsClosed
+        {
+            get
+            {
+                if (m_LeftDoor == null || m_RightDoor == null)
+                    return false;
+
+                float angleL = Mathf.Abs(m_LeftDoor.angle);
+                float angleR = Mathf.Abs(m_RightDoor.angle);
+                return angleL < m_ResetAngle && angleR < m_ResetAngle;
+            }
+        }
+
+        /// <summary>
+        /// Checks if all blocks from the level have been returned to the shelf.
+        /// </summary>
+        /// <param name="expectedCount">The number of blocks expected (from level configuration)</param>
+        /// <returns>True if all blocks are in the shelf</returns>
+        public bool AreAllBlocksReturned(int expectedCount)
+        {
+            // Clean up any null references from destroyed blocks
+            _storedBlocks.RemoveAll(rb => rb == null);
+            return _storedBlocks.Count >= expectedCount;
+        }
+
+        /// <summary>
+        /// Gets the list of blocks currently stored in the shelf.
+        /// Useful for validation and debugging.
+        /// </summary>
+        /// <returns>Read-only list of Rigidbodies in the shelf</returns>
+        public IReadOnlyList<Rigidbody> GetBlocksInShelf()
+        {
+            // Clean up any null references
+            _storedBlocks.RemoveAll(rb => rb == null);
+            return _storedBlocks.AsReadOnly();
+        }
+
+        /// <summary>
         /// Resets the trigger state, allowing the shelf to fire again.
         /// </summary>
         public void ResetTriggerState()
@@ -336,6 +489,14 @@ namespace BlockBattle
                     // Enable physics and apply forces
                     rb.WakeUp();
                     rb.isKinematic = false;
+                    
+                    // Use continuous collision detection to prevent blocks from
+                    // tunneling through the floor at high speeds
+                    if (m_UseContinuousCollision)
+                    {
+                        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+                    }
+                    
                     rb.linearVelocity = randomDir * randomPower;
 
                     // Add tumble rotation
@@ -344,6 +505,10 @@ namespace BlockBattle
                     ejectedCount++;
                 }
             }
+
+            // Clear stored blocks list - blocks must physically re-enter the shelf
+            // to be counted again (via OnTriggerEnter)
+            _storedBlocks.Clear();
 
             // Kick doors open further
             KickDoor(m_LeftDoor);
