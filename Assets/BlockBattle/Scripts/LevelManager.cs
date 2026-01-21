@@ -21,8 +21,8 @@ namespace BlockBattle
         [SerializeField, Tooltip("Reference to the ReferenceStructureSpawner")]
         private ReferenceStructureSpawner m_ReferenceSpawner;
 
-        [SerializeField, Tooltip("Reference to the BlockSpawner")]
-        private BlockSpawner m_BlockSpawner;
+        [SerializeField, Tooltip("Reference to the ShelfBlockSpawner (spawns blocks inside shelf)")]
+        private ShelfBlockSpawner m_ShelfSpawner;
 
         [SerializeField, Tooltip("Reference to the BuildValidator")]
         private BuildValidator m_BuildValidator;
@@ -96,8 +96,8 @@ namespace BlockBattle
             // Find references if not assigned
             if (m_ReferenceSpawner == null)
                 m_ReferenceSpawner = FindAnyObjectByType<ReferenceStructureSpawner>();
-            if (m_BlockSpawner == null)
-                m_BlockSpawner = FindAnyObjectByType<BlockSpawner>();
+            if (m_ShelfSpawner == null)
+                m_ShelfSpawner = FindAnyObjectByType<ShelfBlockSpawner>();
             if (m_BuildValidator == null)
                 m_BuildValidator = FindAnyObjectByType<BuildValidator>();
             if (m_PlacementGuides == null)
@@ -163,11 +163,11 @@ namespace BlockBattle
                 m_ReferenceSpawner.SpawnStructure(levelConfig);
             }
 
-            // Spawn player blocks
-            if (m_BlockSpawner != null)
+            // Spawn player blocks inside shelf
+            if (m_ShelfSpawner != null)
             {
-                m_BlockSpawner.SpawnConfiguration = levelConfig;
-                m_BlockSpawner.SpawnBlocks();
+                m_ShelfSpawner.SpawnConfiguration = levelConfig;
+                m_ShelfSpawner.SpawnBlocks();
             }
 
             // Update validator
@@ -317,6 +317,12 @@ namespace BlockBattle
         /// </summary>
         private void ClearPlacedBlocks()
         {
+            // First, clear blocks from shelf spawner if available
+            if (m_ShelfSpawner != null)
+            {
+                m_ShelfSpawner.ClearSpawnedBlocks();
+            }
+
             // Find all XRGrabInteractable blocks that aren't reference blocks
             XRGrabInteractable[] allInteractables = FindObjectsByType<XRGrabInteractable>(FindObjectsSortMode.None);
             
@@ -330,8 +336,10 @@ namespace BlockBattle
                 if (name.StartsWith("ReferenceBlock_") || name.Contains("Reference"))
                     continue;
 
-                // Destroy player blocks
-                if (name.Contains("_Spawned") || name.Contains("Block_"))
+                // Destroy player blocks (handles both old and new naming)
+                // Old: "Block_Cube_Yellow_Spawned"
+                // New: "Block_Cube_Yellow_Shelf"
+                if (name.Contains("_Spawned") || name.Contains("_Shelf") || name.Contains("Block_"))
                 {
                     Destroy(interactable.gameObject);
                 }
