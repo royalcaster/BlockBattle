@@ -1984,8 +1984,8 @@ Transform:
   m_GameObject: {fileID: 231810054}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.24, y: 0.7, z: 2}
-  m_LocalScale: {x: 2.71, y: 0.1, z: 0.76}
+  m_LocalPosition: {x: 0.61, y: 0.7, z: 2}
+  m_LocalScale: {x: 1.03, y: 0.1, z: 0.76}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -3453,7 +3453,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: cda58762bbda6cc45b066eeba27a97f3, type: 2}
   - {fileID: 11400000, guid: 45d9aa7e022b6864b97d0b98357f73e2, type: 2}
   m_ReferenceSpawner: {fileID: 931133730}
-  m_BlockSpawner: {fileID: 675548552}
+  m_ShelfSpawner: {fileID: 2000022942}
   m_BuildValidator: {fileID: 1396227392}
   m_PlacementGuides: {fileID: 1046248547}
   m_GameplayHUD: {fileID: 226815576}
@@ -4150,7 +4150,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &685157335
 Transform:
   m_ObjectHideFlags: 0
@@ -10730,6 +10730,37 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e0cb9aa70a22847b5925ee5f067c10a9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!1 &1352959954
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1352959955}
+  m_Layer: 0
+  m_Name: SpawnAnchor
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1352959955
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1352959954}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.72, y: 1.447, z: -1.4}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2000022939}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1353539538
 GameObject:
   m_ObjectHideFlags: 0
@@ -13901,6 +13932,7 @@ GameObject:
   - component: {fileID: 2000022939}
   - component: {fileID: 2000022941}
   - component: {fileID: 2000022940}
+  - component: {fileID: 2000022942}
   m_Layer: 0
   m_Name: Regal
   m_TagString: Untagged
@@ -13916,8 +13948,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2000022938}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -7.23596, y: 0, z: -8.663191}
+  m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: -6.17, y: 0, z: -8.66}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -13930,8 +13962,9 @@ Transform:
   - {fileID: 90995647}
   - {fileID: 1961992413}
   - {fileID: 1661022039}
+  - {fileID: 1352959955}
   m_Father: {fileID: 1518875618}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -90, z: 0}
 --- !u!65 &2000022940
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -13960,20 +13993,58 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2000022938}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f46b4a75efc2cb14cbc1179332286fde, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Scenes.Sandbox.ShelfLogic_AngleTrigger
-  spreadAmount: 0.3
-  tumbleForce: 10
-  ejectionForce: 5
+  spreadAmount: 0.1
+  tumbleForce: 5
+  ejectionForce: 3
   ejectionDirection: {fileID: 1661022039}
   leftDoor: {fileID: 90995649}
   rightDoor: {fileID: 1961992415}
   triggerAngle: 70
   resetAngle: 60
   doorKickForce: 30
+--- !u!114 &2000022942
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2000022938}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c1c5325489f123b48a6f20390b75fa23, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BlockBattle.ShelfBlockSpawner
+  m_SpawnConfiguration: {fileID: 0}
+  m_CubeBlockPrefab: {fileID: 910437241199148728, guid: 99b38755fca98be47a5d974aaf449480,
+    type: 3}
+  m_CylinderBlockPrefab: {fileID: 7933269622428246041, guid: 783ced40d81cddd49b67057213afbcde,
+    type: 3}
+  m_TriangleBlockPrefab: {fileID: 4676939511477297553, guid: ada333da409b0954ebc6827854cdb36a,
+    type: 3}
+  m_RectangleBlockPrefab: {fileID: 6620566850578622691, guid: 67c10fd43fe5dbd43ac39e99625dd5a7,
+    type: 3}
+  m_ArchBlockPrefab: {fileID: 4627017006652698212, guid: 10844140b6200de419e697d806a8e24f,
+    type: 3}
+  m_BigTriangleBlockPrefab: {fileID: 1684962492138486894, guid: 52d12201187a8194683820e5c6e8ca08,
+    type: 3}
+  m_SpawnAnchor: {fileID: 1352959955}
+  m_SpawnSpacing: 0.25
+  m_SpawnDirection: {x: 0, y: 0, z: -1}
+  m_RandomizeSpawnOrder: 1
+  m_LeftDoor: {fileID: 90995649}
+  m_RightDoor: {fileID: 1961992415}
+  m_TriggerAngle: 70
+  m_ResetAngle: 60
+  m_DoorKickForce: 15
+  m_EjectionDirection: {fileID: 1661022039}
+  m_EjectionForce: 5
+  m_SpreadAmount: 0.3
+  m_TumbleForce: 10
 --- !u!1 &2023890503
 GameObject:
   m_ObjectHideFlags: 0
