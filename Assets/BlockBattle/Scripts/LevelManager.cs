@@ -18,7 +18,12 @@ namespace BlockBattle
         Building,
 
         /// <summary>
-        /// Structure is complete, waiting for blocks to be returned to shelf.
+        /// Player is destroying the structure with the slingshot.
+        /// </summary>
+        Destruction,
+
+        /// <summary>
+        /// Structure is destroyed, waiting for blocks to be returned to shelf.
         /// </summary>
         WaitingForReturn,
 
@@ -59,6 +64,12 @@ namespace BlockBattle
         [SerializeField, Tooltip("Reference to the GameplayHUD")]
         private GameplayHUD m_GameplayHUD;
 
+        [SerializeField, Tooltip("Reference to the DestructionPhaseManager")]
+        private DestructionPhaseManager m_DestructionManager;
+
+        [SerializeField, Tooltip("Reference to the XR Setup for player teleportation")]
+        private BlockBattleXRSetup m_XRSetup;
+
         [Header("UI Elements")]
         [SerializeField, Tooltip("Text element to show current level (optional - can also use GameplayHUD)")]
         private TextMeshProUGUI m_LevelText;
@@ -83,6 +94,13 @@ namespace BlockBattle
         [Header("Block Return Settings")]
         [SerializeField, Tooltip("Countdown duration before starting next level (after blocks returned)")]
         private float m_CountdownDuration = 3f;
+
+        [Header("Destruction Phase Settings")]
+        [SerializeField, Tooltip("Position where player is teleported for destruction phase")]
+        private Transform m_DestructionTeleportPosition;
+
+        [SerializeField, Tooltip("Position where player is teleported back after destruction")]
+        private Transform m_BuildingTeleportPosition;
 
         // Runtime state
         private int m_CurrentLevelIndex = 0;
@@ -147,6 +165,16 @@ namespace BlockBattle
         /// </summary>
         public event System.Action OnCountdownCancelled;
 
+        /// <summary>
+        /// Event fired when destruction phase starts.
+        /// </summary>
+        public event System.Action OnDestructionPhaseStarted;
+
+        /// <summary>
+        /// Event fired when destruction phase completes.
+        /// </summary>
+        public event System.Action OnDestructionPhaseCompleted;
+
         private void Start()
         {
             // Find references if not assigned
@@ -160,6 +188,16 @@ namespace BlockBattle
                 m_PlacementGuides = FindAnyObjectByType<BuildZonePlacementGuides>();
             if (m_GameplayHUD == null)
                 m_GameplayHUD = FindAnyObjectByType<GameplayHUD>();
+            if (m_DestructionManager == null)
+                m_DestructionManager = FindAnyObjectByType<DestructionPhaseManager>();
+            if (m_XRSetup == null)
+                m_XRSetup = FindAnyObjectByType<BlockBattleXRSetup>();
+
+            // Subscribe to destruction manager events
+            if (m_DestructionManager != null)
+            {
+                m_DestructionManager.OnDestructionComplete += OnDestructionPhaseComplete;
+            }
 
             // Hide success panel initially
             if (m_SuccessPanel != null)
@@ -177,6 +215,11 @@ namespace BlockBattle
                     UpdateBuildingPhase();
                     break;
 
+                case LevelPhase.Destruction:
+                    // Destruction phase is managed by DestructionPhaseManager
+                    // We just wait for the OnDestructionComplete event
+                    break;
+
                 case LevelPhase.WaitingForReturn:
                     UpdateWaitingForReturnPhase();
                     break;
@@ -189,6 +232,15 @@ namespace BlockBattle
                 case LevelPhase.Transitioning:
                     // Nothing to do, waiting for transition to complete
                     break;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            // Unsubscribe from events
+            if (m_DestructionManager != null)
+            {
+                m_DestructionManager.OnDestructionComplete -= OnDestructionPhaseComplete;
             }
         }
 
@@ -324,19 +376,79 @@ namespace BlockBattle
 
         /// <summary>
         /// Called when the building phase is complete.
-        /// Transitions to WaitingForReturn phase.
+        /// Transitions to Destruction phase.
         /// </summary>
         private void OnBuildingComplete()
         {
-            m_CurrentPhase = LevelPhase.WaitingForReturn;
-            
             // Fire event
             OnBuildingPhaseCompleted?.Invoke(CurrentLevelNumber);
+
+            // Start destruction phase
+            StartDestructionPhase();
+        }
+
+        /// <summary>
+        /// Starts the destruction phase where player shoots at the structure.
+        /// </summary>
+        private void StartDestructionPhase()
+        {
+            m_CurrentPhase = LevelPhase.Destruction;
+            
+            Debug.Log($"LevelManager: Starting destruction phase - teleporting player to slingshot position...");
+
+            // Teleport player to destruction position
+            if (m_XRSetup != null && m_DestructionTeleportPosition != null)
+            {
+                m_XRSetup.TeleportPlayer(m_DestructionTeleportPosition);
+            }
+            else if (m_DestructionManager != null && m_DestructionManager.ShootingPosition != null)
+            {
+                // Fallback to destruction manager's shooting position
+                if (m_XRSetup != null)
+                {
+                    m_XRSetup.TeleportPlayer(m_DestructionManager.ShootingPosition);
+                }
+            }
+
+            // Start the destruction phase manager
+            if (m_DestructionManager != null)
+            {
+                m_DestructionManager.StartDestructionPhase();
+            }
+            else
+            {
+                Debug.LogWarning("LevelManager: No DestructionPhaseManager found! Skipping destruction phase.");
+                OnDestructionPhaseComplete();
+                return;
+            }
+
+            // Show destruction UI
+            ShowDestructionMessage();
+
+            OnDestructionPhaseStarted?.Invoke();
+        }
+
+        /// <summary>
+        /// Called when the destruction phase is complete (all blocks knocked off table).
+        /// </summary>
+        private void OnDestructionPhaseComplete()
+        {
+            Debug.Log($"LevelManager: Destruction phase complete! Transitioning to WaitingForReturn...");
+
+            m_CurrentPhase = LevelPhase.WaitingForReturn;
+
+            // Teleport player back to building position (if specified)
+            if (m_XRSetup != null && m_BuildingTeleportPosition != null)
+            {
+                m_XRSetup.TeleportPlayer(m_BuildingTeleportPosition);
+            }
+
+            OnDestructionPhaseCompleted?.Invoke();
 
             // Show return blocks message
             ShowReturnBlocksMessage();
 
-            Debug.Log($"LevelManager: Waiting for player to return {m_ExpectedBlockCount} blocks to shelf and close doors...");
+            Debug.Log($"LevelManager: Waiting for player to return {m_ExpectedBlockCount} blocks to shelf...");
         }
 
         #endregion
@@ -452,6 +564,28 @@ namespace BlockBattle
         #endregion
 
         #region UI Messages
+
+        /// <summary>
+        /// Shows the destruction phase message.
+        /// </summary>
+        private void ShowDestructionMessage()
+        {
+            if (m_SuccessPanel != null)
+            {
+                m_SuccessPanel.SetActive(true);
+            }
+
+            if (m_SuccessText != null)
+            {
+                m_SuccessText.text = $"Structure Complete!\n\nDestroy your creation!";
+            }
+
+            // Also update HUD if available
+            if (m_GameplayHUD != null)
+            {
+                m_GameplayHUD.ShowDestructionMessage(m_ExpectedBlockCount);
+            }
+        }
 
         /// <summary>
         /// Shows the "return blocks to shelf" message.
