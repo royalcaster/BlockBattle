@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using System.Collections.Generic;
+using Unity.Netcode;
+using BlockBattle.Network;
 
 namespace BlockBattle
 {
@@ -31,6 +33,16 @@ namespace BlockBattle
         [SerializeField, Tooltip("Show debug logs")]
         private bool m_DebugMode = true;
 
+        [Header("Multiplayer")]
+        [SerializeField, Tooltip("The workspace index this manager belongs to")]
+        private int m_WorkspaceIndex = 0;
+
+        [SerializeField, Tooltip("The opponent's build zone to target in multiplayer")]
+        private BuildZone m_OpponentBuildZone;
+
+        [SerializeField, Tooltip("Whether to use opponent's build zone in multiplayer mode (false = shoot own structure)")]
+        private bool m_UseOpponentZone = false;
+
         // Events
         /// <summary>
         /// Fired when the destruction phase starts.
@@ -54,6 +66,8 @@ namespace BlockBattle
         private int _totalBlocks = 0;
         private bool _completionPending = false;
         private float _completionTimer = 0f;
+        private bool _isMultiplayerMode = false;
+        private BuildZone _activeBuildZone; // The zone to check (own or opponent's)
 
         /// <summary>
         /// Gets whether the destruction phase is currently active.
@@ -75,6 +89,24 @@ namespace BlockBattle
         /// </summary>
         public Transform ShootingPosition => m_ShootingPosition;
 
+        /// <summary>
+        /// Gets or sets the workspace index.
+        /// </summary>
+        public int WorkspaceIndex
+        {
+            get => m_WorkspaceIndex;
+            set => m_WorkspaceIndex = value;
+        }
+
+        /// <summary>
+        /// Gets or sets the opponent's build zone for multiplayer.
+        /// </summary>
+        public BuildZone OpponentBuildZone
+        {
+            get => m_OpponentBuildZone;
+            set => m_OpponentBuildZone = value;
+        }
+
         private void Start()
         {
             // Find references if not assigned
@@ -83,11 +115,69 @@ namespace BlockBattle
             if (m_BuildZone == null)
                 m_BuildZone = FindAnyObjectByType<BuildZone>();
 
+            // Check multiplayer mode
+            CheckMultiplayerMode();
+
             // Initially disable slingshot
             if (m_Slingshot != null)
             {
                 m_Slingshot.SetEnabled(false);
             }
+        }
+
+        /// <summary>
+        /// Checks if we're in multiplayer mode and sets up accordingly.
+        /// </summary>
+        private void CheckMultiplayerMode()
+        {
+            _isMultiplayerMode = NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient;
+
+            if (_isMultiplayerMode)
+            {
+                // Try to find opponent's build zone through PlayerWorkspaceManager
+                SetupMultiplayerZones();
+            }
+        }
+
+        /// <summary>
+        /// Sets up the build zones for multiplayer (target opponent's zone).
+        /// </summary>
+        private void SetupMultiplayerZones()
+        {
+            if (!m_UseOpponentZone)
+            {
+                _activeBuildZone = m_BuildZone;
+                return;
+            }
+
+            // If opponent zone is already set, use it
+            if (m_OpponentBuildZone != null)
+            {
+                _activeBuildZone = m_OpponentBuildZone;
+                return;
+            }
+
+            // Try to find through workspace manager
+            var workspaceManager = PlayerWorkspaceManager.Instance;
+            if (workspaceManager != null)
+            {
+                var localWorkspace = workspaceManager.GetLocalPlayerWorkspace();
+                if (localWorkspace != null)
+                {
+                    var opponentWorkspace = localWorkspace.OpponentWorkspace;
+                    if (opponentWorkspace != null)
+                    {
+                        m_OpponentBuildZone = opponentWorkspace.BuildZone;
+                        _activeBuildZone = m_OpponentBuildZone;
+                        Debug.Log($"DestructionPhaseManager: Set up to target opponent's build zone");
+                        return;
+                    }
+                }
+            }
+
+            // Fallback to own build zone
+            Debug.LogWarning("DestructionPhaseManager: Could not find opponent's build zone, using own");
+            _activeBuildZone = m_BuildZone;
         }
 
         private void Update()
@@ -134,13 +224,24 @@ namespace BlockBattle
             _checkTimer = 0f;
             _lastBlockCount = -1;
 
+            // In multiplayer, set up to target opponent's zone
+            if (_isMultiplayerMode)
+            {
+                SetupMultiplayerZones();
+            }
+            else
+            {
+                _activeBuildZone = m_BuildZone;
+            }
+
             // Count initial blocks
             _totalBlocks = CountBlocksInZone();
             _lastBlockCount = _totalBlocks;
 
             if (m_DebugMode)
             {
-                Debug.Log($"DestructionPhaseManager: Starting destruction phase with {_totalBlocks} blocks");
+                string zoneInfo = _isMultiplayerMode ? "(opponent's zone)" : "(own zone)";
+                Debug.Log($"DestructionPhaseManager: Starting destruction phase with {_totalBlocks} blocks {zoneInfo}");
             }
 
             // Enable slingshot
@@ -226,9 +327,12 @@ namespace BlockBattle
         /// <returns>Number of blocks in the zone</returns>
         private int CountBlocksInZone()
         {
-            if (m_BuildZone == null)
+            // Use the active build zone (opponent's in multiplayer, own in single-player)
+            BuildZone zoneToCheck = _activeBuildZone ?? m_BuildZone;
+
+            if (zoneToCheck == null)
             {
-                Debug.LogWarning("DestructionPhaseManager: No BuildZone assigned!");
+                Debug.LogWarning("DestructionPhaseManager: No BuildZone to check!");
                 return 0;
             }
 
@@ -257,10 +361,10 @@ namespace BlockBattle
                     continue;
 
                 // Check if it's a player block
-                if (name.Contains("Block_") || name.Contains("_Shelf") || name.Contains("_Spawned"))
+                if (name.Contains("Block_") || name.Contains("_Shelf") || name.Contains("_Spawned") || name.Contains("_Net"))
                 {
                     // Check if in zone
-                    if (m_BuildZone.IsInZone(interactable.gameObject))
+                    if (zoneToCheck.IsInZone(interactable.gameObject))
                     {
                         count++;
                     }
@@ -277,7 +381,9 @@ namespace BlockBattle
         {
             List<GameObject> blocks = new List<GameObject>();
 
-            if (m_BuildZone == null)
+            // Use the active build zone
+            BuildZone zoneToCheck = _activeBuildZone ?? m_BuildZone;
+            if (zoneToCheck == null)
                 return blocks;
 
             XRGrabInteractable[] allInteractables = FindObjectsByType<XRGrabInteractable>(FindObjectsSortMode.None);
@@ -295,9 +401,9 @@ namespace BlockBattle
                 if (name.Contains("Projectile") || name.Contains("Ball"))
                     continue;
 
-                if (name.Contains("Block_") || name.Contains("_Shelf") || name.Contains("_Spawned"))
+                if (name.Contains("Block_") || name.Contains("_Shelf") || name.Contains("_Spawned") || name.Contains("_Net"))
                 {
-                    if (m_BuildZone.IsInZone(interactable.gameObject))
+                    if (zoneToCheck.IsInZone(interactable.gameObject))
                     {
                         blocks.Add(interactable.gameObject);
                     }
@@ -328,6 +434,12 @@ namespace BlockBattle
             if (m_DebugMode)
             {
                 Debug.Log("DestructionPhaseManager: Destruction phase complete!");
+            }
+
+            // Report to network manager in multiplayer
+            if (_isMultiplayerMode && NetworkedLevelManager.Instance != null)
+            {
+                NetworkedLevelManager.Instance.ReportDestructionCompleteServerRpc();
             }
 
             OnDestructionComplete?.Invoke();

@@ -324,8 +324,25 @@ namespace XRMultiplayer
 
         private void OnSessionPropertiesChanged()
         {
-            XRINetworkGameManager.ConnectedRoomCode = m_CurrentSession.Code;
-            XRINetworkGameManager.ConnectedRoomName.Value = m_CurrentSession.Name;
+            try
+            {
+                if (m_CurrentSession != null)
+                {
+                    XRINetworkGameManager.ConnectedRoomCode = m_CurrentSession.Code;
+                    XRINetworkGameManager.ConnectedRoomName.Value = m_CurrentSession.Name;
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Session was disposed during shutdown - this is expected and harmless
+                // Unity Services may trigger this callback during cleanup
+                Utils.LogWarning($"{k_DebugPrepend}Session properties changed on disposed session (harmless cleanup race condition)");
+            }
+            catch (Exception ex)
+            {
+                // Log other exceptions but don't crash
+                Utils.LogWarning($"{k_DebugPrepend}Error in OnSessionPropertiesChanged: {ex.Message}");
+            }
         }
 
         public async Task LeaveSession()
@@ -333,7 +350,19 @@ namespace XRMultiplayer
             if (m_CurrentSession != null)
             {
                 m_CurrentSession.SessionPropertiesChanged -= OnSessionPropertiesChanged;
-                await m_CurrentSession.LeaveAsync();
+                try
+                {
+                    await m_CurrentSession.LeaveAsync();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Session already disposed during shutdown - this is expected and harmless
+                    // NOTE: You may also see ObjectDisposedException errors from Unity Services' internal
+                    // LobbyHandler.OnAccessTokenChanged during shutdown. This is a known Unity Services
+                    // cleanup race condition where the access token changes during shutdown and triggers
+                    // cleanup on an already-disposed lobby object. These errors are harmless and can be
+                    // safely ignored - they occur in Unity's package code and cannot be prevented.
+                }
                 m_CurrentSession = null;
             }
             else

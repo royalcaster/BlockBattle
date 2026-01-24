@@ -161,7 +161,7 @@ namespace XRMultiplayer
         /// </summary>
         protected void Start()
         {
-            if (m_PokeFollowTransform != null)
+            if (m_PokeFollowTransform != null && m_PokeDataProvider != null)
             {
                 m_InitialPosition = m_PokeFollowTransform.localPosition;
                 m_MaxDistance = m_MaxDistance > 0f ? Mathf.Min(m_InitialPosition.magnitude, m_MaxDistance) : m_InitialPosition.magnitude;
@@ -172,7 +172,10 @@ namespace XRMultiplayer
             else
             {
                 enabled = false;
-                Debug.LogWarning($"Missing Poke Follow Transform assignment on {this}. Disabling component.", this);
+                if (m_PokeFollowTransform == null)
+                    Debug.LogWarning($"Missing Poke Follow Transform assignment on {this}. Disabling component.", this);
+                if (m_PokeDataProvider == null)
+                    Debug.LogWarning($"Missing Poke Data Provider in parent hierarchy on {this}. Disabling component.", this);
             }
         }
 

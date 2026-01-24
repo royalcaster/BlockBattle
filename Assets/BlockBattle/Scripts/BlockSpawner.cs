@@ -81,10 +81,16 @@ namespace BlockBattle
         [SerializeField, Tooltip("Spawn height above table in meters")]
         private float m_SpawnHeight = 0.2f;
 
+        [Header("Debug")]
+        [SerializeField, Tooltip("Enable verbose console logging")]
+        private bool m_VerboseLogging = false;
+
         /// <summary>
         /// Logs spawner initialization and warns about missing prefabs.
         /// </summary>
         private void Awake()
+        {
+            if (m_VerboseLogging)
         {
             Debug.Log($"BlockSpawner: Awake() called. GameObject: {gameObject.name}, Active: {gameObject.activeSelf}, Enabled: {enabled}");
             Debug.Log($"BlockSpawner: SpawnOnStart = {m_SpawnOnStart}, BlocksPerType = {m_BlocksPerType}");
@@ -95,6 +101,7 @@ namespace BlockBattle
                       $"Rectangle: {(m_RectangleBlockPrefab != null ? m_RectangleBlockPrefab.name : "NULL")}, " +
                       $"Arch: {(m_ArchBlockPrefab != null ? m_ArchBlockPrefab.name : "NULL")}, " +
                       $"BigTriangle: {(m_BigTriangleBlockPrefab != null ? m_BigTriangleBlockPrefab.name : "NULL")}");
+            }
             
             // Warn about missing prefabs
             if (m_CubeBlockPrefab == null) Debug.LogWarning("BlockSpawner: Cube prefab is not assigned!");

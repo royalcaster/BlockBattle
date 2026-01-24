@@ -622,6 +622,27 @@ namespace BlockBattle
                 return;
             }
 
+            // Remove NetworkBlock if present (reference blocks don't need networking)
+            var networkBlock = block.GetComponent<Network.NetworkBlock>();
+            if (networkBlock != null)
+            {
+                Destroy(networkBlock);
+            }
+
+            // Remove NetworkObject if present (reference blocks are local only)
+            var networkObject = block.GetComponent<Unity.Netcode.NetworkObject>();
+            if (networkObject != null)
+            {
+                Destroy(networkObject);
+            }
+
+            // Remove NetworkRigidbody if present
+            var networkRigidbody = block.GetComponent<Unity.Netcode.Components.NetworkRigidbody>();
+            if (networkRigidbody != null)
+            {
+                Destroy(networkRigidbody);
+            }
+
             // Disable or remove Rigidbody
             Rigidbody rb = block.GetComponent<Rigidbody>();
             if (rb != null)

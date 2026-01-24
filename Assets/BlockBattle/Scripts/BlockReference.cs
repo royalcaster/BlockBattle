@@ -126,7 +126,7 @@ namespace BlockBattle
             #endif
 
             // Default to Cube if unable to determine - this is a problem case!
-            Debug.LogWarning($"BlockReference: Could not determine block type for '{gameObject.name}' - defaulting to Cube");
+            UnityEngine.Debug.LogWarning($"BlockReference: Could not determine block type for '{gameObject.name}' - defaulting to Cube");
             return BlockType.Cube;
         }
 

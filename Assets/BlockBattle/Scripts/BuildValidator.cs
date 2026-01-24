@@ -3,6 +3,8 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using Unity.Netcode;
+using BlockBattle.Network;
 
 namespace BlockBattle
 {
@@ -103,6 +105,16 @@ namespace BlockBattle
 
         [SerializeField, Tooltip("Show expected block positions as wireframes")]
         private bool m_ShowExpectedPositions = true;
+        
+        [SerializeField, Tooltip("Enable verbose console logging (disable for cleaner logs)")]
+        private bool m_VerboseLogging = false;
+
+        [Header("Multiplayer")]
+        [SerializeField, Tooltip("The workspace index this validator belongs to (for multiplayer)")]
+        private int m_WorkspaceIndex = 0;
+
+        [SerializeField, Tooltip("Automatically report completion to NetworkedLevelManager")]
+        private bool m_AutoReportToNetwork = true;
 
         // Cached data for gizmo drawing
         private BuildValidationResult m_LastValidationResult;
@@ -119,10 +131,35 @@ namespace BlockBattle
         // Effective height offset (may be adjusted for single-block structures)
         private float m_EffectiveHeightOffset = 0.12f;
 
+        // Multiplayer state
+        private bool _isMultiplayerMode = false;
+        private bool _hasReportedCompletion = false;
+        private float _lastReportedAccuracy = 0f;
+
         private void Awake()
         {
             // Reset alignment state on start
             ResetAlignmentLock();
+            
+            // Check multiplayer mode
+            CheckMultiplayerMode();
+        }
+
+        /// <summary>
+        /// Checks if we're in multiplayer mode.
+        /// </summary>
+        private void CheckMultiplayerMode()
+        {
+            _isMultiplayerMode = NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient;
+        }
+
+        /// <summary>
+        /// Gets or sets the workspace index for this validator.
+        /// </summary>
+        public int WorkspaceIndex
+        {
+            get => m_WorkspaceIndex;
+            set => m_WorkspaceIndex = value;
         }
 
         public float PositionTolerance
@@ -163,7 +200,12 @@ namespace BlockBattle
             m_LastBestRotation = 0f;
             m_LastPlacedBlockCount = 0;
             m_Initialized = true; // Mark as initialized after reset
-            Debug.Log("BuildValidator: Alignment lock reset");
+
+            // Reset network reporting state
+            _hasReportedCompletion = false;
+            _lastReportedAccuracy = 0f;
+
+            if (m_VerboseLogging) Debug.Log("BuildValidator: Alignment lock reset");
         }
 
         /// <summary>
@@ -221,11 +263,12 @@ namespace BlockBattle
                 // For single block at Y=0, use a smaller offset that accounts for block center height
                 // Cube blocks are 0.1m tall, so center is at 0.05m above floor
                 m_EffectiveHeightOffset = 0.05f;
-                Debug.Log($"BuildValidator: Single-block structure detected at Y=0, using adjusted height offset: {m_EffectiveHeightOffset}m (instead of {m_HeightOffset}m)");
+                if (m_VerboseLogging) Debug.Log($"BuildValidator: Single-block structure detected at Y=0, using adjusted height offset: {m_EffectiveHeightOffset}m (instead of {m_HeightOffset}m)");
             }
 
-            // Minimal logging - only on significant changes or errors
-            // Debug.Log($"=== BUILD VALIDATION: {placedBlocks.Count} placed, {referenceEntries.Count} reference ===");
+            // Verbose logging - only when enabled
+            if (m_VerboseLogging)
+            {
             if (m_BuildZone != null)
             {
                 Debug.Log($"Build zone position: {m_BuildZone.transform.position}");
@@ -241,6 +284,7 @@ namespace BlockBattle
                 expectedRelPos.y += m_EffectiveHeightOffset; // Apply effective height offset
                 Vector3 expectedWorldPos = buildCenter + expectedRelPos;
                 Debug.Log($"  {entry.BlockType} ({entry.BlockColor}): RelPos={expectedRelPos}, WorldPos={expectedWorldPos}");
+                }
             }
 
             // Step 4: Match blocks
@@ -258,6 +302,7 @@ namespace BlockBattle
                 // Use fixed rotation (for placement guides mode)
                 // Respect the user's m_ValidateRotation setting - don't force it ON
                 // This allows users to choose whether rotation matters when using placement guides
+                if (m_VerboseLogging)
                 Debug.Log($"[PLACEMENT GUIDES MODE] Using fixed rotation {m_FixedRotation}°, rotation validation: {(m_ValidateRotation ? "ON" : "OFF")}");
                 
                 m_LastBestRotation = m_FixedRotation;
@@ -275,10 +320,46 @@ namespace BlockBattle
             m_LastValidationResult = result;
             CacheExpectedPositions(referenceEntries, buildCenter, referenceCenter);
 
+            if (m_VerboseLogging)
+            {
             Debug.Log($"=== RESULT: {result.AccuracyPercentage:F1}% accuracy ({result.CorrectBlocks}/{result.TotalReferenceBlocks} correct) ===");
             Debug.Log($"Presence: {result.PresencePercentage:F1}% ({result.PresentBlocks}/{result.TotalReferenceBlocks} present)");
+            }
+
+            // Report to network in multiplayer mode
+            ReportToNetworkIfNeeded(result);
 
             return result;
+        }
+
+        /// <summary>
+        /// Reports validation results to the NetworkedLevelManager if in multiplayer mode.
+        /// </summary>
+        private void ReportToNetworkIfNeeded(BuildValidationResult result)
+        {
+            if (!_isMultiplayerMode || !m_AutoReportToNetwork) return;
+            if (NetworkedLevelManager.Instance == null) return;
+
+            // Only report significant changes in accuracy (to avoid spamming)
+            bool accuracyChanged = Mathf.Abs(result.AccuracyPercentage - _lastReportedAccuracy) > 1f;
+            
+            // Report if accuracy reached 100% or changed significantly
+            if (result.AccuracyPercentage >= 100f || accuracyChanged)
+            {
+                _lastReportedAccuracy = result.AccuracyPercentage;
+
+                // Only call ServerRpc if we haven't already reported 100% completion
+                if (!_hasReportedCompletion || result.AccuracyPercentage >= 100f)
+                {
+                    NetworkedLevelManager.Instance.ReportBuildCompleteServerRpc(result.AccuracyPercentage);
+
+                    if (result.AccuracyPercentage >= 100f)
+                    {
+                        _hasReportedCompletion = true;
+                        Debug.Log($"BuildValidator: Reported build completion to network (accuracy: {result.AccuracyPercentage:F1}%)");
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -580,7 +661,7 @@ namespace BlockBattle
             List<GameObject> unmatchedPlaced = placedBlocks.ToList();
 
             string rotInfo = yRotationOffset != 0f ? $" [Rotated {yRotationOffset}°]" : "";
-            Debug.Log($"--- POSITION-BASED MATCHING{rotInfo} (with optimal assignment for identical blocks) ---");
+            if (m_VerboseLogging) Debug.Log($"--- POSITION-BASED MATCHING{rotInfo} (with optimal assignment for identical blocks) ---");
 
             // Group reference entries by type+color for optimal matching
             var referenceGroups = new Dictionary<string, List<(BlockSpawnEntry entry, int index)>>();
@@ -678,11 +759,14 @@ namespace BlockBattle
                             result.CorrectBlocks++;
                         }
 
+                        if (m_VerboseLogging)
+                        {
                         string status = blockResult.IsCorrect ? "[OK]" : 
                                        (blockResult.IsPositionCorrect ? "[ROT FAIL]" : "[POS FAIL]");
                         string rotDetails = m_ValidateRotation ? $", RotErr={rotationError:F1}° (need <{m_RotationTolerance}°)" : "";
                         string posDetails = hasSymmetricRotation ? $" (extended tolerance: {effectivePosTolerance:F3}m)" : "";
                         Debug.Log($"    {status} #{i}: PosErr={posError:F3}m (need <{effectivePosTolerance:F3}m){posDetails}{rotDetails}");
+                        }
                     }
                     else
                     {
@@ -692,7 +776,7 @@ namespace BlockBattle
                         blockResult.RotationError = float.MaxValue;
                         result.MissingBlocks.Add(refEntry);
 
-                        Debug.Log($"    [MISSING] #{i}: No matching block available");
+                        if (m_VerboseLogging) Debug.Log($"    [MISSING] #{i}: No matching block available");
                     }
 
                     processedResults[originalIndex] = blockResult;
@@ -708,7 +792,7 @@ namespace BlockBattle
 
             result.ExtraBlocks.AddRange(unmatchedPlaced);
             
-            if (unmatchedPlaced.Count > 0)
+            if (m_VerboseLogging && unmatchedPlaced.Count > 0)
             {
                 Debug.Log($"  Extra blocks in zone: {unmatchedPlaced.Count}");
             }

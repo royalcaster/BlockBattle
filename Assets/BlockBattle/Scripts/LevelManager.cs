@@ -4,6 +4,8 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Netcode;
+using BlockBattle.Network;
 
 namespace BlockBattle
 {
@@ -102,6 +104,10 @@ namespace BlockBattle
         [SerializeField, Tooltip("Position where player is teleported back after destruction")]
         private Transform m_BuildingTeleportPosition;
 
+        [Header("Multiplayer")]
+        [SerializeField, Tooltip("If true, delegates to NetworkedLevelManager when in multiplayer")]
+        private bool m_UseNetworkManager = true;
+
         // Runtime state
         private int m_CurrentLevelIndex = 0;
         private LevelPhase m_CurrentPhase = LevelPhase.Building;
@@ -109,6 +115,10 @@ namespace BlockBattle
         private bool m_ValidationEnabled = false;
         private int m_ExpectedBlockCount = 0;
         private Coroutine m_CountdownCoroutine = null;
+        private NetworkedLevelManager m_NetworkedLevelManager;
+        private bool m_IsMultiplayerMode = false;
+        private bool m_WaitingForMultiplayerConnection = false;
+        private bool m_GameStarted = false;
 
         /// <summary>
         /// Gets the current level number (1-based for display).
@@ -175,6 +185,11 @@ namespace BlockBattle
         /// </summary>
         public event System.Action OnDestructionPhaseCompleted;
 
+        /// <summary>
+        /// Gets whether the game is running in multiplayer mode.
+        /// </summary>
+        public bool IsMultiplayerMode => m_IsMultiplayerMode;
+
         private void Start()
         {
             // Find references if not assigned
@@ -203,12 +218,78 @@ namespace BlockBattle
             if (m_SuccessPanel != null)
                 m_SuccessPanel.SetActive(false);
 
-            // Start with Level 1
+            // Check if Lobby UI exists - if so, we're expecting multiplayer
+            // and should wait for connection before starting the game
+            var lobbyUI = FindAnyObjectByType<XRMultiplayer.LobbyUI>();
+            if (lobbyUI != null && m_UseNetworkManager)
+            {
+                // Wait for multiplayer connection
+                m_WaitingForMultiplayerConnection = true;
+                Debug.Log("LevelManager: Lobby UI detected - waiting for multiplayer connection before starting game");
+                
+                // Subscribe to connection events
+                if (XRMultiplayer.XRINetworkGameManager.Instance != null)
+                {
+                    XRMultiplayer.XRINetworkGameManager.Connected.Subscribe(OnMultiplayerConnectionChanged);
+                }
+            }
+            else
+            {
+                // No Lobby UI - check current multiplayer state and start immediately
+                CheckMultiplayerMode();
+                if (!m_IsMultiplayerMode)
+                {
             StartLevel(0);
+                    m_GameStarted = true;
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Called when multiplayer connection state changes.
+        /// </summary>
+        private void OnMultiplayerConnectionChanged(bool connected)
+        {
+            BlockBattle.Debugging.DebugLogManager.LevelMgr($"=== OnMultiplayerConnectionChanged: connected={connected}, m_GameStarted={m_GameStarted} ===");
+            
+            if (connected && !m_GameStarted)
+            {
+                BlockBattle.Debugging.DebugLogManager.LevelMgr("Multiplayer connected - processing...");
+                m_WaitingForMultiplayerConnection = false;
+                CheckMultiplayerMode();
+                
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"After CheckMultiplayerMode: m_IsMultiplayerMode={m_IsMultiplayerMode}");
+                
+                // In multiplayer, NetworkedLevelManager handles the game start
+                // But we still need to set up our local references
+                if (!m_IsMultiplayerMode)
+                {
+                    // Fallback to single player if multiplayer setup failed
+                    BlockBattle.Debugging.DebugLogManager.LogWarning(BlockBattle.Debugging.DebugLogManager.LogCategory.LevelManager, "Multiplayer mode not detected, falling back to single player");
+                    StartLevel(0);
+                }
+                else
+                {
+                    BlockBattle.Debugging.DebugLogManager.LevelMgr("Multiplayer mode active - NetworkedLevelManager should handle game start");
+                }
+                m_GameStarted = true;
+            }
+            else if (!connected)
+            {
+                BlockBattle.Debugging.DebugLogManager.LevelMgr("Multiplayer disconnected");
+            }
         }
 
         private void Update()
         {
+            // In multiplayer mode, most logic is handled by NetworkedLevelManager
+            if (m_IsMultiplayerMode)
+            {
+                // Only handle local validation reporting in multiplayer
+                UpdateMultiplayerValidation();
+                return;
+            }
+
             switch (m_CurrentPhase)
             {
                 case LevelPhase.Building:
@@ -242,7 +323,149 @@ namespace BlockBattle
             {
                 m_DestructionManager.OnDestructionComplete -= OnDestructionPhaseComplete;
             }
+
+            // Unsubscribe from networked level manager events
+            if (m_NetworkedLevelManager != null)
+            {
+                m_NetworkedLevelManager.OnPhaseChanged -= OnNetworkPhaseChanged;
+            }
+            
+            // Unsubscribe from multiplayer connection events
+            XRMultiplayer.XRINetworkGameManager.Connected.Unsubscribe(OnMultiplayerConnectionChanged);
         }
+
+        #region Multiplayer Support
+
+        /// <summary>
+        /// Checks if we're in multiplayer mode and sets up accordingly.
+        /// </summary>
+        private void CheckMultiplayerMode()
+        {
+            BlockBattle.Debugging.DebugLogManager.LevelMgr("=== CheckMultiplayerMode ===");
+            BlockBattle.Debugging.DebugLogManager.LevelMgr($"  m_UseNetworkManager: {m_UseNetworkManager}");
+            
+            if (!m_UseNetworkManager)
+            {
+                m_IsMultiplayerMode = false;
+                BlockBattle.Debugging.DebugLogManager.LevelMgr("  UseNetworkManager is FALSE - single player mode");
+                return;
+            }
+
+            BlockBattle.Debugging.DebugLogManager.LevelMgr($"  NetworkManager.Singleton: {(NetworkManager.Singleton != null ? "EXISTS" : "NULL")}");
+            
+            if (NetworkManager.Singleton != null)
+            {
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"  IsConnectedClient: {NetworkManager.Singleton.IsConnectedClient}");
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"  IsListening: {NetworkManager.Singleton.IsListening}");
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"  IsHost: {NetworkManager.Singleton.IsHost}");
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"  IsServer: {NetworkManager.Singleton.IsServer}");
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"  IsClient: {NetworkManager.Singleton.IsClient}");
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"  LocalClientId: {NetworkManager.Singleton.LocalClientId}");
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"  CurrentSessionOwner: {NetworkManager.Singleton.CurrentSessionOwner}");
+            }
+
+            // Check if NetworkManager exists and we're connected
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient)
+            {
+                m_IsMultiplayerMode = true;
+                m_NetworkedLevelManager = NetworkedLevelManager.Instance;
+                
+                BlockBattle.Debugging.DebugLogManager.LevelMgr($"  NetworkedLevelManager.Instance: {(m_NetworkedLevelManager != null ? "EXISTS" : "NULL")}");
+
+                if (m_NetworkedLevelManager != null)
+                {
+                    // Subscribe to networked events
+                    m_NetworkedLevelManager.OnPhaseChanged += OnNetworkPhaseChanged;
+                    BlockBattle.Debugging.DebugLogManager.LevelMgr("  Running in MULTIPLAYER mode, delegating to NetworkedLevelManager");
+                    
+                    // Check if NetworkedLevelManager is spawned
+                    var no = m_NetworkedLevelManager.GetComponent<NetworkObject>();
+                    if (no != null)
+                    {
+                        BlockBattle.Debugging.DebugLogManager.LevelMgr($"  NetworkedLevelManager.IsSpawned: {no.IsSpawned}");
+                    }
+                }
+                else
+                {
+                    BlockBattle.Debugging.DebugLogManager.LogWarning(BlockBattle.Debugging.DebugLogManager.LogCategory.LevelManager, "NetworkManager connected but no NetworkedLevelManager found!");
+                    m_IsMultiplayerMode = false;
+                }
+            }
+            else
+            {
+                m_IsMultiplayerMode = false;
+                BlockBattle.Debugging.DebugLogManager.LevelMgr("  Running in SINGLE-PLAYER mode (not connected)");
+            }
+            
+            BlockBattle.Debugging.DebugLogManager.LevelMgr($"=== CheckMultiplayerMode RESULT: m_IsMultiplayerMode={m_IsMultiplayerMode} ===");
+        }
+
+        /// <summary>
+        /// Updates validation in multiplayer mode and reports to NetworkedLevelManager.
+        /// </summary>
+        private void UpdateMultiplayerValidation()
+        {
+            if (m_NetworkedLevelManager == null) return;
+            if (m_NetworkedLevelManager.CurrentPhase != NetworkedLevelPhase.Building) return;
+
+            // Wait for validation delay
+            if (!m_ValidationEnabled)
+            {
+                m_ValidationTimer += Time.deltaTime;
+                if (m_ValidationTimer >= m_ValidationStartDelay)
+                {
+                    m_ValidationEnabled = true;
+                }
+                return;
+            }
+
+            // Validate and report to network
+            if (m_BuildValidator != null)
+            {
+                BuildValidationResult result = m_BuildValidator.ValidateBuild();
+                if (result != null && result.AccuracyPercentage > 0)
+                {
+                    // Report accuracy to networked manager
+                    m_NetworkedLevelManager.ReportBuildCompleteServerRpc(result.AccuracyPercentage);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Called when the networked phase changes.
+        /// </summary>
+        private void OnNetworkPhaseChanged(NetworkedLevelPhase phase)
+        {
+            // Map networked phase to local phase for UI and local logic
+            switch (phase)
+            {
+                case NetworkedLevelPhase.Building:
+                    m_CurrentPhase = LevelPhase.Building;
+                    m_ValidationEnabled = false;
+                    m_ValidationTimer = 0f;
+                    break;
+
+                case NetworkedLevelPhase.Destruction:
+                    m_CurrentPhase = LevelPhase.Destruction;
+                    OnDestructionPhaseStarted?.Invoke();
+                    break;
+
+                case NetworkedLevelPhase.Transitioning:
+                    m_CurrentPhase = LevelPhase.Transitioning;
+                    break;
+
+                case NetworkedLevelPhase.WaitingForPlayers:
+                    // Reset to building state while waiting
+                    m_CurrentPhase = LevelPhase.Building;
+                    break;
+
+                case NetworkedLevelPhase.GameOver:
+                    OnAllLevelsCompleted?.Invoke();
+                    break;
+            }
+        }
+
+        #endregion
 
         #region Phase Updates
 

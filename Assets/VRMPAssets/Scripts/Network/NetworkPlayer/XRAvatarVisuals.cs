@@ -59,11 +59,17 @@ namespace XRMultiplayer
 
         public virtual void OnDestroy()
         {
-            m_NetworkPlayer.onSpawnedLocal -= PlayerSpawnedLocal;
-            m_NetworkPlayer.onSpawnedAll -= PlayerSpawnedAll;
-            m_NetworkPlayer.onColorUpdated -= SetPlayerColor;
+            if (m_NetworkPlayer != null)
+            {
+                m_NetworkPlayer.onSpawnedLocal -= PlayerSpawnedLocal;
+                m_NetworkPlayer.onSpawnedAll -= PlayerSpawnedAll;
+                m_NetworkPlayer.onColorUpdated -= SetPlayerColor;
+            }
 
-            XRINetworkGameManager.Instance.OnSessionOwnerPromoted -= HostUpdated;
+            if (XRINetworkGameManager.Instance != null)
+            {
+                XRINetworkGameManager.Instance.OnSessionOwnerPromoted -= HostUpdated;
+            }
         }
 
         public virtual void Update()

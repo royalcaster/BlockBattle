@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using Unity.Netcode;
+using BlockBattle.Network;
 
 namespace BlockBattle
 {
@@ -59,8 +61,8 @@ namespace BlockBattle
         [SerializeField, Tooltip("Direction to arrange blocks when spawning (normalized)")]
         private Vector3 m_SpawnDirection = Vector3.right;
 
-        [SerializeField, Tooltip("Whether to randomize the order of spawned blocks")]
-        private bool m_RandomizeSpawnOrder = true;
+        [SerializeField, Tooltip("Whether to randomize the order of spawned blocks. Disable for multiplayer to ensure consistent block order.")]
+        private bool m_RandomizeSpawnOrder = false;
 
         #endregion
 
@@ -123,11 +125,38 @@ namespace BlockBattle
 
         #endregion
 
+        #region Multiplayer Settings
+
+        [Header("Multiplayer")]
+        [SerializeField, Tooltip("The workspace index this spawner belongs to (for multiplayer)")]
+        private int m_WorkspaceIndex = 0;
+
+        [SerializeField, Tooltip("Whether to use network spawning when in multiplayer mode")]
+        private bool m_UseNetworkSpawning = true;
+
+        #endregion
+
         #region Private State
 
         private bool _hasTriggered = false;
         private List<Rigidbody> _storedBlocks = new List<Rigidbody>();
         private List<GameObject> _spawnedBlockObjects = new List<GameObject>();
+        private List<NetworkObject> _spawnedNetworkObjects = new List<NetworkObject>();
+        private bool _isMultiplayerMode = false;
+        private bool _gameStarted = false;
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets or sets the workspace index for this spawner.
+        /// </summary>
+        public int WorkspaceIndex
+        {
+            get => m_WorkspaceIndex;
+            set => m_WorkspaceIndex = value;
+        }
 
         #endregion
 
@@ -136,6 +165,7 @@ namespace BlockBattle
         private void Awake()
         {
             ValidatePrefabs();
+            CheckMultiplayerMode();
         }
 
         private void Update()
@@ -327,19 +357,57 @@ namespace BlockBattle
             // Reset trigger state so doors can trigger ejection
             _hasTriggered = false;
             
+            // Enable door monitoring now that blocks are spawned
+            _gameStarted = true;
+            
             OnBlocksSpawned?.Invoke(_spawnedBlockObjects.Count);
         }
+        
+        /// <summary>
+        /// Sets whether the game has started (enables door monitoring).
+        /// </summary>
+        public void SetGameStarted(bool started)
+        {
+            _gameStarted = started;
+            if (!started)
+            {
+                _hasTriggered = false;
+            }
+        }
+        
+        /// <summary>
+        /// Gets whether the game has started.
+        /// </summary>
+        public bool IsGameStarted => _gameStarted;
 
         /// <summary>
         /// Clears all spawned blocks from the shelf.
         /// </summary>
         public void ClearSpawnedBlocks()
         {
+            // In multiplayer mode on server, despawn network objects
+            if (_isMultiplayerMode && NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
+            {
+                foreach (NetworkObject networkObj in _spawnedNetworkObjects)
+                {
+                    if (networkObj != null && networkObj.IsSpawned)
+                    {
+                        networkObj.Despawn(true);
+                    }
+                }
+                _spawnedNetworkObjects.Clear();
+            }
+
+            // Clean up local references
             foreach (GameObject block in _spawnedBlockObjects)
             {
                 if (block != null)
                 {
+                    // Only destroy if not a networked object (already handled above)
+                    if (!_isMultiplayerMode || block.GetComponent<NetworkObject>() == null)
+                {
                     Destroy(block);
+                    }
                 }
             }
             _spawnedBlockObjects.Clear();
@@ -429,6 +497,9 @@ namespace BlockBattle
         /// </summary>
         private void MonitorDoors()
         {
+            // Don't monitor doors until the game has started
+            if (!_gameStarted) return;
+            
             if (m_LeftDoor == null || m_RightDoor == null)
             {
                 return;
@@ -544,7 +615,53 @@ namespace BlockBattle
 
         #endregion
 
+        #region Multiplayer Support
+
+        /// <summary>
+        /// Checks if we're in multiplayer mode.
+        /// </summary>
+        private void CheckMultiplayerMode()
+        {
+            if (!m_UseNetworkSpawning)
+            {
+                _isMultiplayerMode = false;
+                return;
+            }
+
+            _isMultiplayerMode = NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient;
+        }
+
+        /// <summary>
+        /// Gets the owner client ID for this workspace in multiplayer.
+        /// </summary>
+        private ulong GetWorkspaceOwnerClientId()
+        {
+            if (!_isMultiplayerMode) return 0;
+
+            var workspaceManager = PlayerWorkspaceManager.Instance;
+            if (workspaceManager == null) return NetworkManager.Singleton.LocalClientId;
+
+            // Find the client assigned to this workspace
+            foreach (var workspace in workspaceManager.Workspaces)
+            {
+                if (workspace != null && workspace.WorkspaceIndex == m_WorkspaceIndex)
+                {
+                    return workspace.AssignedPlayerId;
+                }
+            }
+
+            return NetworkManager.Singleton.LocalClientId;
+        }
+
+        #endregion
+
         #region Block Spawning
+
+        /// <summary>
+        /// Returns true if this client is the session owner in Distributed Authority mode.
+        /// </summary>
+        private bool IsSessionOwner => NetworkManager.Singleton != null && 
+            NetworkManager.Singleton.LocalClientId == NetworkManager.Singleton.CurrentSessionOwner;
 
         /// <summary>
         /// Spawns a single block at the specified position.
@@ -553,6 +670,27 @@ namespace BlockBattle
         /// <param name="spawnPosition">The position to spawn the block at</param>
         /// <returns>The spawned block GameObject, or null if failed</returns>
         private GameObject SpawnSingleBlock(BlockSpawnEntry entry, Vector3 spawnPosition)
+        {
+            // In Distributed Authority mode, each client spawns their own blocks locally.
+            // Blocks on the shelf don't need to be networked - they're local to each player's workspace.
+            // Only when placed in the build zone might they need network sync.
+            
+            if (_isMultiplayerMode)
+            {
+                // In DA mode, spawn blocks locally for the local player's workspace
+                // Each player spawns their own blocks - no server/client distinction
+                Debug.Log($"ShelfBlockSpawner: Spawning local block in multiplayer DA mode");
+                return SpawnLocalBlock(entry, spawnPosition);
+            }
+
+            // Single-player mode: use normal spawning
+            return SpawnLocalBlock(entry, spawnPosition);
+        }
+
+        /// <summary>
+        /// Spawns a block locally (single-player mode).
+        /// </summary>
+        private GameObject SpawnLocalBlock(BlockSpawnEntry entry, Vector3 spawnPosition)
         {
             GameObject prefab = GetPrefabForBlockType(entry.BlockType);
             if (prefab == null)
@@ -567,6 +705,17 @@ namespace BlockBattle
             if (block != null)
             {
                 block.name = $"Block_{entry.BlockType}_{entry.BlockColor}_Shelf";
+
+                // Remove network components for local/single-player mode
+                // This prevents GlobalObjectIdHash collisions
+                var networkBlock = block.GetComponent<Network.NetworkBlock>();
+                if (networkBlock != null) Destroy(networkBlock);
+                
+                var networkRigidbody = block.GetComponent<Unity.Netcode.Components.NetworkRigidbody>();
+                if (networkRigidbody != null) Destroy(networkRigidbody);
+                
+                var networkObject = block.GetComponent<Unity.Netcode.NetworkObject>();
+                if (networkObject != null) Destroy(networkObject);
 
                 // Apply color material
                 ApplyBlockColor(block, entry.BlockColor);
@@ -586,6 +735,78 @@ namespace BlockBattle
                 }
 
                 Debug.Log($"ShelfBlockSpawner: Spawned {entry.BlockType} ({entry.BlockColor}) at {spawnPosition}");
+            }
+
+            return block;
+        }
+
+        /// <summary>
+        /// Spawns a networked block (multiplayer mode - server only).
+        /// </summary>
+        private GameObject SpawnNetworkedBlock(BlockSpawnEntry entry, Vector3 spawnPosition)
+        {
+            if (!NetworkManager.Singleton.IsServer)
+            {
+                Debug.LogError("ShelfBlockSpawner: SpawnNetworkedBlock should only be called on the server!");
+                return null;
+            }
+
+            GameObject prefab = GetPrefabForBlockType(entry.BlockType);
+            if (prefab == null)
+            {
+                Debug.LogWarning($"ShelfBlockSpawner: No prefab assigned for block type {entry.BlockType}. Skipping.");
+                return null;
+            }
+
+            // Check if prefab has NetworkObject
+            if (prefab.GetComponent<NetworkObject>() == null)
+            {
+                Debug.LogWarning($"ShelfBlockSpawner: Prefab {prefab.name} is missing NetworkObject component! Using local spawn.");
+                return SpawnLocalBlock(entry, spawnPosition);
+            }
+
+            // Spawn with identity rotation
+            GameObject block = Instantiate(prefab, spawnPosition, Quaternion.identity);
+
+            if (block != null)
+            {
+                block.name = $"Block_{entry.BlockType}_{entry.BlockColor}_Shelf_Net";
+
+                // Apply color material before network spawn
+                ApplyBlockColor(block, entry.BlockColor);
+
+                // Get NetworkObject and spawn on network
+                NetworkObject networkObject = block.GetComponent<NetworkObject>();
+                if (networkObject != null)
+                {
+                    // Spawn with ownership assigned to the workspace owner
+                    ulong ownerClientId = GetWorkspaceOwnerClientId();
+                    networkObject.SpawnWithOwnership(ownerClientId);
+
+                    // Track the network object
+                    _spawnedNetworkObjects.Add(networkObject);
+
+                    // Set workspace index on NetworkBlock if present
+                    NetworkBlock networkBlock = block.GetComponent<NetworkBlock>();
+                    if (networkBlock != null)
+                    {
+                        networkBlock.SetWorkspaceIndex(m_WorkspaceIndex);
+                    }
+
+                    Debug.Log($"ShelfBlockSpawner: Spawned networked {entry.BlockType} ({entry.BlockColor}) at {spawnPosition}, owner: {ownerClientId}");
+                }
+
+                // Make block kinematic initially
+                Rigidbody rb = block.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.isKinematic = true;
+                    
+                    if (!_storedBlocks.Contains(rb))
+                    {
+                        _storedBlocks.Add(rb);
+                    }
+                }
             }
 
             return block;

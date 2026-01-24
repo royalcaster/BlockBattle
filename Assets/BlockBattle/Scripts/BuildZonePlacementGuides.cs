@@ -48,6 +48,10 @@ namespace BlockBattle
         [SerializeField, Tooltip("Reference material for guides - assign a basic unlit transparent material")]
         private Material m_GuideMaterialSource;
 
+        [Header("Debug")]
+        [SerializeField, Tooltip("Enable verbose console logging")]
+        private bool m_VerboseLogging = false;
+
         // Runtime data
         private List<PlacementGuide> m_Guides = new List<PlacementGuide>();
         private GameObject m_GuidesContainer;
@@ -234,7 +238,7 @@ namespace BlockBattle
             if (entries.Count == 1 && Mathf.Abs(referenceCenter.y) < 0.01f)
             {
                 heightOffset = 0.05f;
-                Debug.Log($"BuildZonePlacementGuides: Single-block structure at Y=0, using adjusted height offset: {heightOffset}m");
+                if (m_VerboseLogging) Debug.Log($"BuildZonePlacementGuides: Single-block structure at Y=0, using adjusted height offset: {heightOffset}m");
             }
 
             // Find ground level (lowest Y position in reference structure)
@@ -259,7 +263,7 @@ namespace BlockBattle
                 float blockYRelativeToGround = entry.Position.y - groundLevelY;
                 if (blockYRelativeToGround > m_MaxGroundLevelHeight)
                 {
-                    Debug.Log($"BuildZonePlacementGuides: Skipping guide for stacked block {entry.BlockType} at Y={entry.Position.y} (ground level: {groundLevelY})");
+                    if (m_VerboseLogging) Debug.Log($"BuildZonePlacementGuides: Skipping guide for stacked block {entry.BlockType} at Y={entry.Position.y} (ground level: {groundLevelY})");
                     continue;
                 }
 
@@ -299,7 +303,7 @@ namespace BlockBattle
                     float xzDistance = Vector2.Distance(xzPos, existingXZ);
                     if (xzDistance < m_MinGuideSpacing)
                     {
-                        Debug.Log($"BuildZonePlacementGuides: Guide for {entry.BlockType} ({entry.BlockColor}) at XZ=({xzPos.x:F3}, {xzPos.y:F3}) is too close to existing guide (distance: {xzDistance:F3}m < {m_MinGuideSpacing}m). Skipping to prevent overlap.");
+                        if (m_VerboseLogging) Debug.Log($"BuildZonePlacementGuides: Guide for {entry.BlockType} ({entry.BlockColor}) at XZ=({xzPos.x:F3}, {xzPos.y:F3}) is too close to existing guide (distance: {xzDistance:F3}m < {m_MinGuideSpacing}m). Skipping to prevent overlap.");
                         isTooClose = true;
                         break;
                     }
@@ -318,7 +322,7 @@ namespace BlockBattle
                 {
                     guide.ExpectedRelativePosition = relativePos; // Store expected relative position for matching
                     m_Guides.Add(guide);
-                    Debug.Log($"BuildZonePlacementGuides: Created guide for {entry.BlockType} ({entry.BlockColor}) at {guideWorldPos}");
+                    if (m_VerboseLogging) Debug.Log($"BuildZonePlacementGuides: Created guide for {entry.BlockType} ({entry.BlockColor}) at {guideWorldPos}");
                 }
                 else
                 {
@@ -327,7 +331,7 @@ namespace BlockBattle
             }
 
             m_Initialized = true;
-            Debug.Log($"BuildZonePlacementGuides: Created {m_Guides.Count} placement guides");
+            if (m_VerboseLogging) Debug.Log($"BuildZonePlacementGuides: Created {m_Guides.Count} placement guides");
         }
 
         /// <summary>

@@ -95,8 +95,12 @@ namespace XRMultiplayer
             m_SessionPanelObject.SetActive(!isLocal);
             m_LocalPanelObject.SetActive(isLocal);
             m_PlayerCount = XRINetworkGameManager.maxPlayers / 2;
-            XRINetworkGameManager.Instance.OnConnectionFailedAction += FailedToConnect;
-            XRINetworkGameManager.Instance.OnConnectionUpdated += ConnectedUpdated;
+            
+            if (XRINetworkGameManager.Instance != null)
+            {
+                XRINetworkGameManager.Instance.OnConnectionFailedAction += FailedToConnect;
+                XRINetworkGameManager.Instance.OnConnectionUpdated += ConnectedUpdated;
+            }
 
             foreach (Transform t in m_LobbyListParent)
             {
@@ -116,8 +120,11 @@ namespace XRMultiplayer
 
         private void OnDestroy()
         {
-            XRINetworkGameManager.Instance.OnConnectionFailedAction -= FailedToConnect;
-            XRINetworkGameManager.Instance.OnConnectionUpdated -= ConnectedUpdated;
+            if (XRINetworkGameManager.Instance != null)
+            {
+                XRINetworkGameManager.Instance.OnConnectionFailedAction -= FailedToConnect;
+                XRINetworkGameManager.Instance.OnConnectionUpdated -= ConnectedUpdated;
+            }
 
             SessionManager.status.Unsubscribe(ConnectedUpdated);
         }

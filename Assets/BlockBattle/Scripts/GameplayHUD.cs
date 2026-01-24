@@ -2,6 +2,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
+using Unity.Netcode;
+using BlockBattle.Network;
 
 namespace BlockBattle
 {
@@ -37,6 +39,14 @@ namespace BlockBattle
         [Header("Update Settings")]
         [SerializeField] private float m_UpdateInterval = 0.3f;
 
+        [Header("Multiplayer UI")]
+        [SerializeField] private TextMeshProUGUI m_OpponentAccuracyText;
+        [SerializeField] private RectTransform m_OpponentProgressBarFill;
+        [SerializeField] private TextMeshProUGUI m_PlayerScoreText;
+        [SerializeField] private TextMeshProUGUI m_OpponentScoreText;
+        [SerializeField] private GameObject m_MultiplayerPanel;
+        [SerializeField] private TextMeshProUGUI m_GameStatusText;
+
         [Header("Block Meshes (Optional - uses primitives if not assigned)")]
         [SerializeField] private Mesh m_CubeMesh;
         [SerializeField] private Mesh m_CylinderMesh;
@@ -50,6 +60,12 @@ namespace BlockBattle
         private float m_TargetAccuracy = 0f;
         private float m_UpdateTimer = 0f;
         private BuildValidationResult m_LastResult;
+
+        // Multiplayer state
+        private bool _isMultiplayerMode = false;
+        private NetworkedLevelManager _networkedLevelManager;
+        private float _opponentAccuracy = 0f;
+        private float _displayedOpponentAccuracy = 0f;
 
         private class BlockIndicator
         {
@@ -78,6 +94,9 @@ namespace BlockBattle
             // Auto-find fill image if not assigned but RectTransform is
             if (m_ProgressBarFillImage == null && m_ProgressBarFill != null)
                 m_ProgressBarFillImage = m_ProgressBarFill.GetComponent<Image>();
+
+            // Check multiplayer mode
+            CheckMultiplayerMode();
 
             // Load block meshes
             LoadBlockMeshes();
@@ -127,8 +146,18 @@ namespace BlockBattle
 
         private void OnDestroy()
         {
+            // Unsubscribe from spawner events
             if (m_ReferenceSpawner != null)
                 m_ReferenceSpawner.OnStructureSpawned -= OnStructureChanged;
+
+            // Unsubscribe from network events
+            if (_networkedLevelManager != null)
+            {
+                _networkedLevelManager.OnPhaseChanged -= OnNetworkPhaseChanged;
+                _networkedLevelManager.OnLevelStarted -= OnNetworkLevelStarted;
+                _networkedLevelManager.OnPlayerBuildComplete -= OnPlayerBuildComplete;
+                _networkedLevelManager.OnGameComplete -= OnGameComplete;
+            }
 
             // Clean up materials and mesh objects
             foreach (var indicator in m_BlockIndicators)
@@ -164,7 +193,178 @@ namespace BlockBattle
 
             // Animate progress bar
             AnimateProgressBar();
+
+            // Update multiplayer UI
+            if (_isMultiplayerMode)
+            {
+                UpdateMultiplayerUI();
+            }
         }
+
+        #region Multiplayer Support
+
+        /// <summary>
+        /// Checks if we're in multiplayer mode and sets up accordingly.
+        /// </summary>
+        private void CheckMultiplayerMode()
+        {
+            _isMultiplayerMode = NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient;
+
+            if (_isMultiplayerMode)
+            {
+                _networkedLevelManager = NetworkedLevelManager.Instance;
+
+                // Subscribe to network events
+                if (_networkedLevelManager != null)
+                {
+                    _networkedLevelManager.OnPhaseChanged += OnNetworkPhaseChanged;
+                    _networkedLevelManager.OnLevelStarted += OnNetworkLevelStarted;
+                    _networkedLevelManager.OnPlayerBuildComplete += OnPlayerBuildComplete;
+                    _networkedLevelManager.OnGameComplete += OnGameComplete;
+                }
+
+                // Show multiplayer panel
+                if (m_MultiplayerPanel != null)
+                {
+                    m_MultiplayerPanel.SetActive(true);
+                }
+
+                Debug.Log("GameplayHUD: Running in multiplayer mode");
+            }
+            else
+            {
+                // Hide multiplayer panel
+                if (m_MultiplayerPanel != null)
+                {
+                    m_MultiplayerPanel.SetActive(false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Updates the multiplayer-specific UI elements.
+        /// </summary>
+        private void UpdateMultiplayerUI()
+        {
+            if (_networkedLevelManager == null) return;
+
+            // Update opponent's accuracy
+            _opponentAccuracy = _networkedLevelManager.GetOpponentAccuracy() / 100f;
+
+            // Smoothly animate opponent's progress bar
+            _displayedOpponentAccuracy = Mathf.Lerp(_displayedOpponentAccuracy, _opponentAccuracy, Time.deltaTime * m_ProgressAnimSpeed);
+
+            // Update opponent accuracy text
+            if (m_OpponentAccuracyText != null)
+            {
+                m_OpponentAccuracyText.text = $"{(_displayedOpponentAccuracy * 100f):F0}%";
+            }
+
+            // Update opponent progress bar
+            if (m_OpponentProgressBarFill != null)
+            {
+                m_OpponentProgressBarFill.localScale = new Vector3(_displayedOpponentAccuracy, 1f, 1f);
+            }
+
+            // Update scores
+            if (m_PlayerScoreText != null)
+            {
+                m_PlayerScoreText.text = $"You: {_networkedLevelManager.GetLocalPlayerScore()}";
+            }
+
+            if (m_OpponentScoreText != null)
+            {
+                m_OpponentScoreText.text = $"Opponent: {_networkedLevelManager.GetOpponentScore()}";
+            }
+
+            // Update level text to show current phase
+            UpdateGameStatusText();
+        }
+
+        /// <summary>
+        /// Updates the game status text based on current phase.
+        /// </summary>
+        private void UpdateGameStatusText()
+        {
+            if (m_GameStatusText == null || _networkedLevelManager == null) return;
+
+            switch (_networkedLevelManager.CurrentPhase)
+            {
+                case NetworkedLevelPhase.WaitingForPlayers:
+                    m_GameStatusText.text = "Waiting for opponent...";
+                    break;
+
+                case NetworkedLevelPhase.Building:
+                    m_GameStatusText.text = $"Level {_networkedLevelManager.CurrentLevelNumber} - BUILD!";
+                    break;
+
+                case NetworkedLevelPhase.Destruction:
+                    m_GameStatusText.text = "DESTROY!";
+                    break;
+
+                case NetworkedLevelPhase.Transitioning:
+                    m_GameStatusText.text = $"Next level in {_networkedLevelManager.PhaseTimeRemaining:F0}...";
+                    break;
+
+                case NetworkedLevelPhase.GameOver:
+                    int winner = _networkedLevelManager.GetLocalPlayerScore() > _networkedLevelManager.GetOpponentScore() ? 1 : 
+                                (_networkedLevelManager.GetLocalPlayerScore() < _networkedLevelManager.GetOpponentScore() ? 2 : 0);
+                    if (winner == 1)
+                        m_GameStatusText.text = "YOU WIN!";
+                    else if (winner == 2)
+                        m_GameStatusText.text = "You lose...";
+                    else
+                        m_GameStatusText.text = "TIE!";
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Called when the network phase changes.
+        /// </summary>
+        private void OnNetworkPhaseChanged(NetworkedLevelPhase phase)
+        {
+            Debug.Log($"GameplayHUD: Phase changed to {phase}");
+
+            // Could add visual effects for phase changes here
+        }
+
+        /// <summary>
+        /// Called when a new level starts on the network.
+        /// </summary>
+        private void OnNetworkLevelStarted(int levelNumber)
+        {
+            // Update level text
+            if (m_LevelText != null)
+            {
+                m_LevelText.text = $"Level {levelNumber}";
+            }
+
+            // Reset displayed accuracy
+            _displayedOpponentAccuracy = 0f;
+        }
+
+        /// <summary>
+        /// Called when a player completes their build.
+        /// </summary>
+        private void OnPlayerBuildComplete(int playerNumber, float accuracy)
+        {
+            Debug.Log($"GameplayHUD: Player {playerNumber} completed build with {accuracy:F1}%");
+
+            // Could show a notification here
+        }
+
+        /// <summary>
+        /// Called when the game is complete.
+        /// </summary>
+        private void OnGameComplete(int winnerPlayerNumber)
+        {
+            Debug.Log($"GameplayHUD: Game complete! Winner: Player {winnerPlayerNumber}");
+
+            // Could show victory/defeat screen here
+        }
+
+        #endregion
 
 
         /// <summary>

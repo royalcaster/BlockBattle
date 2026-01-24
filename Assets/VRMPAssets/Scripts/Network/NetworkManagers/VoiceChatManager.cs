@@ -208,7 +208,10 @@ namespace XRMultiplayer
         IEnumerator ShowPermissionsAfterDelay(float delay = 1.0f)
         {
             Utils.Log($"{k_DebugPrepend}Requesting Microphone Permissions");
-            PlayerHudNotification.Instance.ShowText("Requesting Microphone Permissions", 3.0f);
+            if (PlayerHudNotification.Instance != null)
+            {
+                PlayerHudNotification.Instance.ShowText("Requesting Microphone Permissions", 3.0f);
+            }
             yield return new WaitForSeconds(delay);
             PermissionCallbacks permissionCallbacks = new();
             permissionCallbacks.PermissionDenied += PermissionDeniedCallback;
@@ -228,7 +231,10 @@ namespace XRMultiplayer
         {
             if (permissionName == Permission.Microphone)
             {
-                PlayerHudNotification.Instance.ShowText("Microphone Permissions Denied", 3.0f);
+                if (PlayerHudNotification.Instance != null)
+                {
+                    PlayerHudNotification.Instance.ShowText("Microphone Permissions Denied", 3.0f);
+                }
             }
         }
 
@@ -236,7 +242,10 @@ namespace XRMultiplayer
         {
             Utils.Log($"{k_DebugPrepend}Microphone Permissions Granted");
             s_HasMicrophonePermission.Value = true;
-            PlayerHudNotification.Instance.ShowText("Microphone Permissions Granted", 3.0f);
+            if (PlayerHudNotification.Instance != null)
+            {
+                PlayerHudNotification.Instance.ShowText("Microphone Permissions Granted", 3.0f);
+            }
         }
 
         async void EnableVoiceChat()
@@ -388,7 +397,9 @@ namespace XRMultiplayer
 
         public void Set3DAudio(Transform localPlayerHeadTransform)
         {
-            if (VivoxService.Instance.IsLoggedIn && VivoxService.Instance.ActiveChannels.Count > 0 && VivoxService.Instance.TransmittingChannels[0] == m_CurrentLobbyId)
+            if (localPlayerHeadTransform == null) return;
+            
+            if (VivoxService.Instance != null && VivoxService.Instance.IsLoggedIn && VivoxService.Instance.ActiveChannels.Count > 0 && VivoxService.Instance.TransmittingChannels[0] == m_CurrentLobbyId)
             {
                 VivoxService.Instance.Set3DPosition(localPlayerHeadTransform.position,
                     localPlayerHeadTransform.position,
@@ -489,7 +500,10 @@ namespace XRMultiplayer
                 m_ConnectionStatus.Value = "Left Voice Channel";
                 m_ConnectedToRoom = false;
                 m_LocalParticpant = null;
-                PlayerHudNotification.Instance.ShowText("Voice Chat Disconnected", 3.0f);
+                if (PlayerHudNotification.Instance != null)
+                {
+                    PlayerHudNotification.Instance.ShowText("Voice Chat Disconnected", 3.0f);
+                }
             }
         }
 

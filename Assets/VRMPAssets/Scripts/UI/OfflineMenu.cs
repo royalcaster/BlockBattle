@@ -39,14 +39,20 @@ namespace XRMultiplayer
             OfflinePlayerAvatar.voiceAmp.Subscribe(UpdateMicIcon);
 
             m_VoiceChatManager = FindFirstObjectByType<VoiceChatManager>();
-            m_VoiceChatManager.selfMuted.Subscribe(MutedChanged);
+            if (m_VoiceChatManager != null)
+            {
+                m_VoiceChatManager.selfMuted.Subscribe(MutedChanged);
+            }
             SetupPlayerDefaults();
         }
 
         private void Start()
         {
             ShowCustomization();
-            XRINetworkGameManager.Instance.OnConnectionFailedAction += ConnectionFailed;
+            if (XRINetworkGameManager.Instance != null)
+            {
+                XRINetworkGameManager.Instance.OnConnectionFailedAction += ConnectionFailed;
+            }
         }
 
         private void OnDestroy()
@@ -55,9 +61,16 @@ namespace XRMultiplayer
             XRINetworkGameManager.LocalPlayerName.Unsubscribe(SetPlayerName);
             XRINetworkGameManager.LocalPlayerColor.Unsubscribe(SetPlayerColor);
             OfflinePlayerAvatar.voiceAmp.Unsubscribe(UpdateMicIcon);
-            m_VoiceChatManager.selfMuted.Subscribe(MutedChanged);
+            
+            if (m_VoiceChatManager != null)
+            {
+                m_VoiceChatManager.selfMuted.Unsubscribe(MutedChanged);
+            }
 
-            XRINetworkGameManager.Instance.OnConnectionFailedAction -= ConnectionFailed;
+            if (XRINetworkGameManager.Instance != null)
+            {
+                XRINetworkGameManager.Instance.OnConnectionFailedAction -= ConnectionFailed;
+            }
         }
 
         void SetupPlayerDefaults()

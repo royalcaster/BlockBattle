@@ -324,7 +324,10 @@ namespace XRMultiplayer
             m_Connected.Value = true;
             LocalId = localPlayerId;
             m_ConnectionState.Value = ConnectionState.Connected;
-            PlayerHudNotification.Instance.ShowText($"<b>Status:</b> Connected");
+            if (PlayerHudNotification.Instance != null)
+            {
+                PlayerHudNotification.Instance.ShowText($"<b>Status:</b> Connected");
+            }
             Utils.Log($"{k_DebugPrepend}Local Player Started with ID: {localPlayerId}", 0);
         }
 
@@ -338,7 +341,10 @@ namespace XRMultiplayer
         {
             m_Connected.Value = false;
             m_CurrentPlayerIDs.Clear();
-            PlayerHudNotification.Instance.ShowText($"<b>Status:</b> Disconnected");
+            if (PlayerHudNotification.Instance != null)
+            {
+                PlayerHudNotification.Instance.ShowText($"<b>Status:</b> Disconnected");
+            }
             // Check if authenticated on disconnect.
             if (IsAuthenticated())
             {

@@ -189,16 +189,16 @@ namespace XRMultiplayer
         ///<inheritdoc/>
         protected virtual void Update()
         {
-            if (IsOwner && XRINetworkGameManager.Instance.positionalVoiceChat)
+            if (IsOwner && XRINetworkGameManager.Instance != null && XRINetworkGameManager.Instance.positionalVoiceChat)
             {
                 if (Time.time > m_VoicePositionCheckTimer)
                 {
                     m_VoicePositionCheckTimer += m_VoicePositionUpdateTime;
 
-                    if (Vector3.Distance(m_PrevHeadPos, m_HeadOrigin.position) > m_VoiceUpdatePosotionDelta)
+                    if (m_HeadOrigin != null && Vector3.Distance(m_PrevHeadPos, m_HeadOrigin.position) > m_VoiceUpdatePosotionDelta)
                     {
                         m_PrevHeadPos = m_HeadOrigin.position;
-                        if (XRINetworkGameManager.Instance.positionalVoiceChat)
+                        if (XRINetworkGameManager.Instance.positionalVoiceChat && m_VoiceChat != null)
                         {
                             m_VoiceChat.Set3DAudio(m_HeadOrigin);
                         }
@@ -209,13 +209,40 @@ namespace XRMultiplayer
             m_VoiceAmplitudeCurrent = Mathf.Lerp(m_VoiceAmplitudeCurrent, m_VoiceAmplitudeDestination, Time.deltaTime * k_VoiceAmplitudeSpeed);
         }
 
+        /// <summary>
+        /// Flag to track if we've logged the first transform update (to avoid log spam)
+        /// </summary>
+        private bool _hasLoggedTransformUpdate = false;
+
         ///<inheritdoc/>
         protected virtual void LateUpdate()
         {
             if (!IsOwner) return;
 
             if (m_HeadOrigin != null)
+            {
                 head.SetPositionAndRotation(m_HeadOrigin.position, m_HeadOrigin.rotation);
+                
+                // Log once to confirm transform updates are happening
+                if (!_hasLoggedTransformUpdate)
+                {
+                    _hasLoggedTransformUpdate = true;
+                    Debug.Log($"XRINetworkPlayer: First transform update - Head pos={m_HeadOrigin.position}, NetworkObjectId={NetworkObjectId}, IsOwner={IsOwner}");
+                }
+            }
+            else
+            {
+                // Try to find XROrigin if not set
+                if (m_XROrigin == null)
+                {
+                    m_XROrigin = FindFirstObjectByType<XROrigin>();
+                }
+                if (m_XROrigin != null && m_XROrigin.Camera != null)
+                {
+                    m_HeadOrigin = m_XROrigin.Camera.transform;
+                    Debug.Log($"XRINetworkPlayer: Found XROrigin camera for head tracking");
+                }
+            }
 
             if (m_LeftHandOrigin != null)
                 leftHand.SetPositionAndRotation(m_LeftHandOrigin.position, m_LeftHandOrigin.rotation);
@@ -279,7 +306,10 @@ namespace XRMultiplayer
         public override void OnNetworkDespawn()
         {
             base.OnNetworkDespawn();
-            PlayerHudNotification.Instance.ShowText($"<b>{m_PlayerName.Value}</b> left");
+            if (PlayerHudNotification.Instance != null)
+            {
+                PlayerHudNotification.Instance.ShowText($"<b>{m_PlayerName.Value}</b> left");
+            }
             onDisconnected?.Invoke(this);
         }
 
@@ -295,16 +325,60 @@ namespace XRMultiplayer
         }
 
         /// <summary>
-        /// Hides and disables Renderers and GameObjects on the Local Player.
+        /// Hides visual elements on the Local Player while keeping NetworkBehaviours active.
         /// Also sets the initial values for <see cref="m_PlayerColor"/> and <see cref="m_PlayerName"/>.
         /// Finally we subscribe to any updates for Color and Name.
         /// </summary>
-        /// <remarks>Only called on the Local Player.</remarks>
+        /// <remarks>
+        /// IMPORTANT: We only disable RENDERERS, not the GameObjects themselves!
+        /// The GameObjects must stay active so that ClientNetworkTransform can sync transforms to other clients.
+        /// Disabling the GameObject would disable all NetworkBehaviours and break network synchronization.
+        /// </remarks>
         protected virtual void SetupLocalPlayer()
         {
+            // Hide hand visuals but keep GameObjects active for networking
             foreach (var hand in m_handsObjects)
             {
-                hand.SetActive(false);
+                // Only disable renderers, not the entire GameObject
+                foreach (var renderer in hand.GetComponentsInChildren<Renderer>(true))
+                {
+                    renderer.enabled = false;
+                }
+            }
+
+            // Hide visual elements for local player (you shouldn't see yourself)
+            // IMPORTANT: Do NOT use SetActive(false) - it disables ClientNetworkTransform!
+            // Instead, just disable renderers so the networking components stay active.
+            
+            // Hide head visuals
+            if (head != null)
+            {
+                foreach (var renderer in head.GetComponentsInChildren<Renderer>(true))
+                {
+                    renderer.enabled = false;
+                }
+            }
+            
+            // Hide hand visuals
+            if (leftHand != null)
+            {
+                foreach (var renderer in leftHand.GetComponentsInChildren<Renderer>(true))
+                {
+                    renderer.enabled = false;
+                }
+            }
+            if (rightHand != null)
+            {
+                foreach (var renderer in rightHand.GetComponentsInChildren<Renderer>(true))
+                {
+                    renderer.enabled = false;
+                }
+            }
+
+            // Hide name tag - this one can be disabled since it has no network components
+            if (m_PlayerNameTag != null)
+            {
+                m_PlayerNameTag.gameObject.SetActive(false);
             }
 
             m_PlayerColor.Value = XRINetworkGameManager.LocalPlayerColor.Value;
@@ -385,7 +459,7 @@ namespace XRMultiplayer
             if (!m_InitialConnected & !string.IsNullOrEmpty(currentName.ToString()))
             {
                 m_InitialConnected = true;
-                if (!IsLocalPlayer)
+                if (!IsLocalPlayer && PlayerHudNotification.Instance != null)
                     PlayerHudNotification.Instance.ShowText($"<b>{playerName}</b> joined");
             }
 

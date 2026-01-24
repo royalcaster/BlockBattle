@@ -2,6 +2,8 @@ using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
+using Unity.Netcode;
+using BlockBattle.Network;
 
 namespace BlockBattle
 {
@@ -61,6 +63,16 @@ namespace BlockBattle
         [SerializeField, Tooltip("Colliders to ignore when firing (e.g., slingshot forks)")]
         private Collider[] m_IgnoreColliders;
 
+        [Header("Multiplayer")]
+        [SerializeField, Tooltip("The workspace index this slingshot belongs to (for multiplayer)")]
+        private int m_WorkspaceIndex = 0;
+
+        [SerializeField, Tooltip("Target workspace index to fire at (same as own = shoot own structure)")]
+        private int m_TargetWorkspaceIndex = 0;
+
+        [SerializeField, Tooltip("Use network spawning for projectiles in multiplayer")]
+        private bool m_UseNetworkSpawning = true;
+
         // Events
         /// <summary>
         /// Event fired when a projectile is launched.
@@ -82,8 +94,31 @@ namespace BlockBattle
         // Cached slingshot colliders for ignoring
         private Collider[] _slingshotColliders;
 
+        // Multiplayer state
+        private bool _isMultiplayerMode = false;
+
+        /// <summary>
+        /// Gets or sets the workspace index for this slingshot.
+        /// </summary>
+        public int WorkspaceIndex
+        {
+            get => m_WorkspaceIndex;
+            set => m_WorkspaceIndex = value;
+        }
+
+        /// <summary>
+        /// Gets or sets the target workspace index (opponent's workspace).
+        /// </summary>
+        public int TargetWorkspaceIndex
+        {
+            get => m_TargetWorkspaceIndex;
+            set => m_TargetWorkspaceIndex = value;
+        }
+
         private void Start()
         {
+            // Check multiplayer mode
+            CheckMultiplayerMode();
             // Get or create the XRGrabInteractable on the pouch
             if (m_Pouch != null)
             {
@@ -262,6 +297,20 @@ namespace BlockBattle
 
         #endregion
 
+        #region Multiplayer Support
+
+        /// <summary>
+        /// Checks if we're in multiplayer mode.
+        /// </summary>
+        private void CheckMultiplayerMode()
+        {
+            _isMultiplayerMode = m_UseNetworkSpawning && 
+                                 NetworkManager.Singleton != null && 
+                                 NetworkManager.Singleton.IsConnectedClient;
+        }
+
+        #endregion
+
         #region Firing
 
         /// <summary>
@@ -274,11 +323,35 @@ namespace BlockBattle
             Vector3 launchDirection = _savedLaunchDirection;
             float pullDistance = _savedPullDistance;
 
-            // Calculate launch velocity (not just force - this is the actual speed)
+            // Calculate launch velocity
             float launchSpeed = pullDistance * m_LaunchForceMultiplier;
+            Vector3 velocity = launchDirection * launchSpeed;
 
             Debug.Log($"VRSlingshot: Firing! Spawn pos: {spawnPosition}, Dir: {launchDirection}, Speed: {launchSpeed:F1}");
 
+            // In multiplayer mode, request server to spawn projectile
+            if (_isMultiplayerMode)
+            {
+                FireNetworkedProjectile(spawnPosition, velocity);
+            }
+            else
+            {
+                // Single-player mode: spawn locally
+                FireLocalProjectile(spawnPosition, velocity);
+            }
+
+            // Play fire sound (always local)
+            if (m_FireSound != null && m_AudioSource != null)
+            {
+                m_AudioSource.PlayOneShot(m_FireSound);
+            }
+        }
+
+        /// <summary>
+        /// Fires a projectile locally (single-player mode).
+        /// </summary>
+        private void FireLocalProjectile(Vector3 spawnPosition, Vector3 velocity)
+        {
             GameObject projectile;
 
             if (m_ProjectilePrefab != null)
@@ -306,9 +379,9 @@ namespace BlockBattle
             rb.mass = 0.2f; // Slightly heavier for better impact
             rb.useGravity = true;
             rb.isKinematic = false;
-            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic; // Best for fast-moving objects
+            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             rb.interpolation = RigidbodyInterpolation.Interpolate;
-            rb.linearDamping = 0.1f; // Small air resistance
+            rb.linearDamping = 0.1f;
             rb.angularDamping = 0.5f;
 
             // Ensure collider is set up properly
@@ -318,7 +391,6 @@ namespace BlockBattle
                 projectileCollider = projectile.AddComponent<SphereCollider>();
             }
             
-            // Make sure the collider is NOT a trigger (needs to physically collide)
             projectileCollider.isTrigger = false;
 
             // Ignore collisions with slingshot parts
@@ -327,19 +399,104 @@ namespace BlockBattle
             // Setup or fix trail renderer
             SetupTrailRenderer(projectile);
 
-            // Apply velocity directly (not force!)
-            rb.linearVelocity = launchDirection * launchSpeed;
+            // Apply velocity directly
+            rb.linearVelocity = velocity;
 
-            Debug.Log($"VRSlingshot: Projectile launched with velocity {rb.linearVelocity} (magnitude: {rb.linearVelocity.magnitude:F1})");
-
-            // Play fire sound
-            if (m_FireSound != null && m_AudioSource != null)
-            {
-                m_AudioSource.PlayOneShot(m_FireSound);
-            }
+            Debug.Log($"VRSlingshot: Local projectile launched with velocity {rb.linearVelocity} (magnitude: {rb.linearVelocity.magnitude:F1})");
 
             // Fire event
             OnProjectileFired?.Invoke(projectile);
+        }
+
+        /// <summary>
+        /// Fires a networked projectile by requesting the server to spawn it.
+        /// </summary>
+        private void FireNetworkedProjectile(Vector3 spawnPosition, Vector3 velocity)
+        {
+            if (NetworkManager.Singleton == null) return;
+
+            // If we're the server, spawn directly
+            if (NetworkManager.Singleton.IsServer)
+            {
+                SpawnNetworkedProjectileOnServer(spawnPosition, velocity);
+            }
+            else
+            {
+                // Request server to spawn
+                RequestProjectileSpawnServerRpc(spawnPosition, velocity, m_TargetWorkspaceIndex);
+            }
+        }
+
+        /// <summary>
+        /// Server RPC to request projectile spawning.
+        /// </summary>
+        private void RequestProjectileSpawnServerRpc(Vector3 position, Vector3 velocity, int targetWorkspace)
+        {
+            // Since VRSlingshot is not a NetworkBehaviour, we need to go through the NetworkedLevelManager
+            // or use a dedicated network manager for projectiles
+
+            // For now, if server, spawn directly
+            if (NetworkManager.Singleton.IsServer)
+            {
+                SpawnNetworkedProjectileOnServer(position, velocity);
+            }
+            else
+            {
+                // Fallback to local spawning if we can't reach server
+                Debug.LogWarning("VRSlingshot: Cannot reach server for networked projectile, using local spawn");
+                FireLocalProjectile(position, velocity);
+            }
+        }
+
+        /// <summary>
+        /// Spawns a networked projectile on the server.
+        /// </summary>
+        private void SpawnNetworkedProjectileOnServer(Vector3 position, Vector3 velocity)
+        {
+            if (!NetworkManager.Singleton.IsServer)
+            {
+                Debug.LogError("VRSlingshot: SpawnNetworkedProjectileOnServer called on non-server!");
+                return;
+            }
+
+            if (m_ProjectilePrefab == null)
+            {
+                Debug.LogError("VRSlingshot: Projectile prefab is null!");
+                return;
+            }
+
+            // Check if prefab has NetworkObject
+            if (m_ProjectilePrefab.GetComponent<NetworkObject>() == null)
+            {
+                Debug.LogWarning("VRSlingshot: Projectile prefab missing NetworkObject, using local spawn");
+                FireLocalProjectile(position, velocity);
+                return;
+            }
+
+            // Use NetworkedProjectile helper to spawn
+            ulong firingPlayerId = NetworkManager.Singleton.LocalClientId;
+            var projectile = NetworkedProjectile.SpawnProjectile(
+                m_ProjectilePrefab,
+                position,
+                velocity,
+                firingPlayerId,
+                m_TargetWorkspaceIndex
+            );
+
+            if (projectile != null)
+            {
+                // Ignore collisions with slingshot parts
+                Collider projectileCollider = projectile.GetComponent<Collider>();
+                if (projectileCollider != null)
+                {
+                    IgnoreSlingshotCollisions(projectileCollider);
+                }
+
+                SetupTrailRenderer(projectile.gameObject);
+
+                Debug.Log($"VRSlingshot: Networked projectile spawned with velocity {velocity.magnitude:F1}");
+                OnProjectileFired?.Invoke(projectile.gameObject);
+            }
         }
 
         /// <summary>

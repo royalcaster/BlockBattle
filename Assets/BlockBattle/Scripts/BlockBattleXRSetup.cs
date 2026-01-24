@@ -24,6 +24,10 @@ namespace BlockBattle
         [SerializeField, Tooltip("Ensure controllers are visible")]
         private bool m_EnsureControllersVisible = true;
 
+        [Header("Debug")]
+        [SerializeField, Tooltip("Enable verbose console logging")]
+        private bool m_VerboseLogging = false;
+
         private void Start()
         {
             SetupXR();
@@ -66,17 +70,17 @@ namespace BlockBattle
                     // Add TrackedPoseDriver if it doesn't exist
                     trackedPoseDriver = xrCamera.gameObject.AddComponent<TrackedPoseDriver>();
                     trackedPoseDriver.trackingType = TrackedPoseDriver.TrackingType.RotationAndPosition;
-                    Debug.Log($"BlockBattleXRSetup: Added TrackedPoseDriver to camera '{xrCamera.gameObject.name}'");
+                    if (m_VerboseLogging) Debug.Log($"BlockBattleXRSetup: Added TrackedPoseDriver to camera '{xrCamera.gameObject.name}'");
                 }
                 else
                 {
                     // Ensure it's enabled and properly configured
                     trackedPoseDriver.enabled = true;
                     trackedPoseDriver.trackingType = TrackedPoseDriver.TrackingType.RotationAndPosition;
-                    Debug.Log($"BlockBattleXRSetup: TrackedPoseDriver found and configured on camera '{xrCamera.gameObject.name}'");
+                    if (m_VerboseLogging) Debug.Log($"BlockBattleXRSetup: TrackedPoseDriver found and configured on camera '{xrCamera.gameObject.name}'");
                 }
                 
-                Debug.Log($"BlockBattleXRSetup: Camera '{xrCamera.gameObject.name}' is active and enabled");
+                if (m_VerboseLogging) Debug.Log($"BlockBattleXRSetup: Camera '{xrCamera.gameObject.name}' is active and enabled");
             }
             else
             {
@@ -90,7 +94,7 @@ namespace BlockBattle
                 // Set camera offset to proper eye height
                 cameraOffset.localPosition = new Vector3(0, m_CameraYOffset, 0);
                 cameraOffset.gameObject.SetActive(true);
-                Debug.Log($"BlockBattleXRSetup: Camera Offset set to Y: {m_CameraYOffset}");
+                if (m_VerboseLogging) Debug.Log($"BlockBattleXRSetup: Camera Offset set to Y: {m_CameraYOffset}");
             }
             else
             {
@@ -116,7 +120,7 @@ namespace BlockBattle
                 EnsureControllersVisible();
             }
 
-            Debug.Log($"BlockBattleXRSetup: XR setup complete. Tracking mode: {m_XROrigin.RequestedTrackingOriginMode}, Scale: {m_PlayerScale}, Camera Y Offset: {m_CameraYOffset}");
+            if (m_VerboseLogging) Debug.Log($"BlockBattleXRSetup: XR setup complete. Tracking mode: {m_XROrigin.RequestedTrackingOriginMode}, Scale: {m_PlayerScale}, Camera Y Offset: {m_CameraYOffset}");
         }
 
         /// <summary>
@@ -166,7 +170,7 @@ namespace BlockBattle
                     renderer.gameObject.SetActive(true);
                     renderer.enabled = true;
                     
-                    Debug.Log($"BlockBattleXRSetup: Enabled controller renderer: {renderer.name}");
+                    if (m_VerboseLogging) Debug.Log($"BlockBattleXRSetup: Enabled controller renderer: {renderer.name}");
                 }
             }
         }
@@ -198,7 +202,7 @@ namespace BlockBattle
             // If you need to force a facing direction, you'd need to rotate the XR Origin,
             // but that conflicts with our LateUpdate that resets rotation.
             
-            Debug.Log($"BlockBattleXRSetup: Teleported player to {position}");
+            if (m_VerboseLogging) Debug.Log($"BlockBattleXRSetup: Teleported player to {position}");
         }
 
         /// <summary>
