@@ -253,6 +253,12 @@ namespace BlockBattle
             m_TimerRunning = true;
             Debug.Log("LevelManager: Game started! Beginning Level 1...");
             
+            // Enable player movement
+            if (m_XRSetup != null)
+            {
+                m_XRSetup.SetLocomotionEnabled(true);
+            }
+            
             // Start with Level 1
             StartLevel(0);
         }
@@ -971,6 +977,12 @@ namespace BlockBattle
             if (m_GameplayHUD != null)
             {
                 m_GameplayHUD.ResetHUD();
+            }
+
+            // Disable player movement
+            if (m_XRSetup != null)
+            {
+                m_XRSetup.SetLocomotionEnabled(false);
             }
 
             Debug.Log("LevelManager: Game reset. Ready for new game.");

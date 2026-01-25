@@ -2,6 +2,7 @@ using UnityEngine;
 using Unity.XR.CoreUtils;
 using UnityEngine.XR;
 using UnityEngine.SpatialTracking;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion;
 
 namespace BlockBattle
 {
@@ -19,6 +20,10 @@ namespace BlockBattle
 
         [SerializeField, Tooltip("Camera Y offset in meters (eye height). Default is 1.36m.")]
         private float m_CameraYOffset = 1.36f;
+
+        [Header("Locomotion Control")]
+        [SerializeField, Tooltip("Whether locomotion (movement/turning) is enabled on start")]
+        private bool m_LocomotionEnabledOnStart = false;
 
         [Header("Controller Visibility")]
         [SerializeField, Tooltip("Ensure controllers are visible")]
@@ -116,7 +121,31 @@ namespace BlockBattle
                 EnsureControllersVisible();
             }
 
-            Debug.Log($"BlockBattleXRSetup: XR setup complete. Tracking mode: {m_XROrigin.RequestedTrackingOriginMode}, Scale: {m_PlayerScale}, Camera Y Offset: {m_CameraYOffset}");
+            // Set initial locomotion state
+            SetLocomotionEnabled(m_LocomotionEnabledOnStart);
+
+            Debug.Log($"BlockBattleXRSetup: XR setup complete. Tracking mode: {m_XROrigin.RequestedTrackingOriginMode}, Scale: {m_PlayerScale}, Camera Y Offset: {m_CameraYOffset}, Locomotion Enabled: {m_LocomotionEnabledOnStart}");
+        }
+
+        /// <summary>
+        /// Enables or disables all locomotion providers found on the XR Origin.
+        /// </summary>
+        /// <param name="enabled">Whether locomotion should be enabled</param>
+        public void SetLocomotionEnabled(bool enabled)
+        {
+            if (m_XROrigin == null) return;
+
+            // Find all locomotion providers (move, turn, teleport, etc.)
+            var providers = m_XROrigin.GetComponentsInChildren<LocomotionProvider>(true);
+            
+            foreach (var provider in providers)
+            {
+                if (provider != null)
+                {
+                    provider.enabled = enabled;
+                    Debug.Log($"BlockBattleXRSetup: {(enabled ? "Enabled" : "Disabled")} locomotion provider: {provider.GetType().Name} on {provider.gameObject.name}");
+                }
+            }
         }
 
         /// <summary>

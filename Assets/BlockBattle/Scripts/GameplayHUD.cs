@@ -89,6 +89,10 @@ namespace BlockBattle
             // Hide HUD initially (until game starts)
             SetHUDVisible(false);
 
+            // Hide block indicator container so level blocks are not shown on start screen
+            if (m_BlockIndicatorContainer != null)
+                m_BlockIndicatorContainer.gameObject.SetActive(false);
+
             // Auto-find fill image if not assigned but RectTransform is
             if (m_ProgressBarFillImage == null && m_ProgressBarFill != null)
                 m_ProgressBarFillImage = m_ProgressBarFill.GetComponent<Image>();
@@ -96,15 +100,9 @@ namespace BlockBattle
             // Load block meshes
             LoadBlockMeshes();
 
-            // Subscribe to structure changes
+            // Subscribe to structure changes (indicators created only when game has started)
             if (m_ReferenceSpawner != null)
-            {
                 m_ReferenceSpawner.OnStructureSpawned += OnStructureChanged;
-                if (m_ReferenceSpawner.CurrentSpawnConfiguration != null)
-                {
-                    OnStructureChanged(m_ReferenceSpawner.CurrentSpawnConfiguration);
-                }
-            }
 
             // Setup default gradient if not properly configured
             // Unity initializes Gradient with default white keys, so check if first key is white/default
@@ -132,11 +130,7 @@ namespace BlockBattle
             if (m_ProgressBarFillImage != null)
                 m_ProgressBarFillImage.color = m_ProgressGradient.Evaluate(0f);
 
-            // Initialize with current config
-            if (m_BuildValidator != null && m_BuildValidator.ReferenceConfiguration != null)
-            {
-                CreateBlockIndicators(m_BuildValidator.ReferenceConfiguration);
-            }
+            // Block indicators are created only when game starts (OnGameStarted), not on start screen
         }
 
         private void OnDestroy()
@@ -161,11 +155,18 @@ namespace BlockBattle
         }
 
         /// <summary>
-        /// Called when a level starts - show the HUD.
+        /// Called when a level starts - show the HUD and create block indicators.
         /// </summary>
         private void OnGameStarted(int levelNumber)
         {
             SetHUDVisible(true);
+
+            // Show and populate block indicator container (hidden on start screen)
+            if (m_BlockIndicatorContainer != null)
+                m_BlockIndicatorContainer.gameObject.SetActive(true);
+
+            if (m_BuildValidator != null && m_BuildValidator.ReferenceConfiguration != null && m_BlockIndicators.Count == 0)
+                CreateBlockIndicators(m_BuildValidator.ReferenceConfiguration);
         }
 
         /// <summary>
@@ -195,15 +196,26 @@ namespace BlockBattle
             }
         }
 
+        private bool IsHUDVisible()
+        {
+            Canvas canvas = GetComponent<Canvas>();
+            return canvas != null && canvas.enabled;
+        }
+
         private void OnStructureChanged(BlockSpawnConfiguration config)
         {
             if (m_BuildValidator != null)
                 m_BuildValidator.ReferenceConfiguration = config;
-            CreateBlockIndicators(config);
+            // Only create/update block indicators after game has started (not on start screen)
+            if (m_LevelManager != null && m_LevelManager.IsGameStarted)
+                CreateBlockIndicators(config);
         }
 
         private void Update()
         {
+            if (!IsHUDVisible())
+                return;
+
             // Update validation
             m_UpdateTimer += Time.deltaTime;
             if (m_UpdateTimer >= m_UpdateInterval && m_BuildValidator != null)
