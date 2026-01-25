@@ -121,13 +121,34 @@ namespace BlockBattle
         /// </summary>
         public event System.Action OnShelfReset;
 
+        /// <summary>
+        /// Event fired when doors are closed after all blocks have been returned.
+        /// Used for end-of-game detection on the last level.
+        /// </summary>
+        public event System.Action OnDoorsClosedWithBlocksReturned;
+
         #endregion
+
+        [Header("Auto-Open Door Settings")]
+        [SerializeField, Tooltip("Angle threshold after which doors automatically swing fully open")]
+        [Range(10f, 60f)]
+        private float m_AutoOpenThreshold = 30f;
+
+        [SerializeField, Tooltip("Motor velocity for auto-opening doors (degrees per second)")]
+        private float m_AutoOpenMotorVelocity = 150f;
+
+        [SerializeField, Tooltip("Motor force for auto-opening doors")]
+        private float m_AutoOpenMotorForce = 50f;
 
         #region Private State
 
         private bool _hasTriggered = false;
         private List<Rigidbody> _storedBlocks = new List<Rigidbody>();
         private List<GameObject> _spawnedBlockObjects = new List<GameObject>();
+        private bool _leftDoorAutoOpening = false;
+        private bool _rightDoorAutoOpening = false;
+        private bool _waitingForDoorsToClose = false;
+        private int _expectedBlockCountForClose = 0;
 
         #endregion
 
@@ -426,6 +447,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Monitors door angles and triggers ejection when threshold is reached.
+        /// Also handles auto-opening doors and detecting when doors close with blocks returned.
         /// </summary>
         private void MonitorDoors()
         {
@@ -437,6 +459,20 @@ namespace BlockBattle
             float angleL = Mathf.Abs(m_LeftDoor.angle);
             float angleR = Mathf.Abs(m_RightDoor.angle);
 
+            // Auto-open left door when past threshold
+            if (angleL >= m_AutoOpenThreshold && !_leftDoorAutoOpening)
+            {
+                EnableDoorMotor(m_LeftDoor, true);
+                _leftDoorAutoOpening = true;
+            }
+            
+            // Auto-open right door when past threshold
+            if (angleR >= m_AutoOpenThreshold && !_rightDoorAutoOpening)
+            {
+                EnableDoorMotor(m_RightDoor, true);
+                _rightDoorAutoOpening = true;
+            }
+
             // Trigger ejection when either door opens past trigger angle
             if ((angleL >= m_TriggerAngle || angleR >= m_TriggerAngle) && !_hasTriggered)
             {
@@ -446,13 +482,85 @@ namespace BlockBattle
             }
 
             // Reset when both doors close below reset angle
-            if (angleL < m_ResetAngle && angleR < m_ResetAngle && _hasTriggered)
+            if (angleL < m_ResetAngle && angleR < m_ResetAngle)
             {
-                _hasTriggered = false;
-                Debug.Log("ShelfBlockSpawner: System reset - ready to fire again");
-                OnShelfReset?.Invoke();
+                // Disable door motors when closed
+                if (_leftDoorAutoOpening)
+                {
+                    EnableDoorMotor(m_LeftDoor, false);
+                    _leftDoorAutoOpening = false;
+                }
+                if (_rightDoorAutoOpening)
+                {
+                    EnableDoorMotor(m_RightDoor, false);
+                    _rightDoorAutoOpening = false;
+                }
+
+                if (_hasTriggered)
+                {
+                    _hasTriggered = false;
+                    Debug.Log("ShelfBlockSpawner: System reset - ready to fire again");
+                    OnShelfReset?.Invoke();
+                }
+
+                // Check if we're waiting for doors to close after blocks returned (last level)
+                if (_waitingForDoorsToClose)
+                {
+                    // Verify all blocks are still in the shelf
+                    if (AreAllBlocksReturned(_expectedBlockCountForClose))
+                    {
+                        _waitingForDoorsToClose = false;
+                        Debug.Log("ShelfBlockSpawner: Doors closed with all blocks returned!");
+                        OnDoorsClosedWithBlocksReturned?.Invoke();
+                    }
+                }
             }
         }
+
+        /// <summary>
+        /// Enables or disables the motor on a door hinge to auto-open/close.
+        /// </summary>
+        /// <param name="door">The door HingeJoint</param>
+        /// <param name="enable">Whether to enable the motor</param>
+        private void EnableDoorMotor(HingeJoint door, bool enable)
+        {
+            if (door == null) return;
+
+            JointMotor motor = door.motor;
+            
+            if (enable)
+            {
+                // Determine direction based on current angle
+                float direction = Mathf.Sign(door.angle);
+                if (direction == 0) direction = 1;
+                
+                motor.targetVelocity = m_AutoOpenMotorVelocity * direction;
+                motor.force = m_AutoOpenMotorForce;
+                door.motor = motor;
+                door.useMotor = true;
+            }
+            else
+            {
+                door.useMotor = false;
+            }
+        }
+
+        /// <summary>
+        /// Starts waiting for doors to close after all blocks are returned.
+        /// Call this on the last level after blocks are returned.
+        /// </summary>
+        /// <param name="expectedBlockCount">Number of blocks that should be in the shelf</param>
+        public void StartWaitingForDoorsClose(int expectedBlockCount)
+        {
+            _waitingForDoorsToClose = true;
+            _expectedBlockCountForClose = expectedBlockCount;
+            Debug.Log($"ShelfBlockSpawner: Waiting for player to close shelf doors (blocks: {expectedBlockCount})");
+        }
+
+        /// <summary>
+        /// Gets whether we are currently waiting for doors to close.
+        /// </summary>
+        public bool IsWaitingForDoorsClose => _waitingForDoorsToClose;
 
         #endregion
 
@@ -583,6 +691,12 @@ namespace BlockBattle
                     {
                         _storedBlocks.Add(rb);
                     }
+                }
+
+                // Add movement timeout component if not present
+                if (block.GetComponent<BlockMovementTimeout>() == null)
+                {
+                    block.AddComponent<BlockMovementTimeout>();
                 }
 
                 Debug.Log($"ShelfBlockSpawner: Spawned {entry.BlockType} ({entry.BlockColor}) at {spawnPosition}");

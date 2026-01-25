@@ -85,6 +85,19 @@ namespace BlockBattle.Editor
             // === PROGRESS BAR SECTION ===
             GameObject progressSection = CreateProgressBarSection(mainContainer);
 
+            // === TIMER TEXT (above block indicators) ===
+            GameObject timerObj = new GameObject("TimerText");
+            timerObj.transform.SetParent(mainContainer.transform, false);
+            RectTransform timerRect = timerObj.AddComponent<RectTransform>();
+            timerRect.sizeDelta = new Vector2(0, 40);
+            TextMeshProUGUI timerText = timerObj.AddComponent<TextMeshProUGUI>();
+            timerText.text = "00:00.00";
+            timerText.fontSize = 32;
+            timerText.fontStyle = FontStyles.Bold;
+            timerText.alignment = TextAlignmentOptions.Center;
+            timerText.color = new Color(0.9f, 0.95f, 1f);
+            timerText.raycastTarget = false;
+
             // === BLOCK INDICATORS SECTION ===
             GameObject blockSection = CreateBlockIndicatorSection(mainContainer);
 
@@ -96,11 +109,14 @@ namespace BlockBattle.Editor
             
             BuildValidator validator = Object.FindObjectOfType<BuildValidator>();
             ReferenceStructureSpawner spawner = Object.FindObjectOfType<ReferenceStructureSpawner>();
+            LevelManager levelManager = Object.FindObjectOfType<LevelManager>();
             
             if (validator != null)
                 hudSO.FindProperty("m_BuildValidator").objectReferenceValue = validator;
             if (spawner != null)
                 hudSO.FindProperty("m_ReferenceSpawner").objectReferenceValue = spawner;
+            if (levelManager != null)
+                hudSO.FindProperty("m_LevelManager").objectReferenceValue = levelManager;
 
             // Find and assign UI elements
             hudSO.FindProperty("m_BlockIndicatorContainer").objectReferenceValue = 
@@ -114,6 +130,9 @@ namespace BlockBattle.Editor
             
             hudSO.FindProperty("m_PercentageText").objectReferenceValue = 
                 progressSection.transform.Find("PercentageText")?.GetComponent<TextMeshProUGUI>();
+
+            // Wire up timer text
+            hudSO.FindProperty("m_TimerText").objectReferenceValue = timerText;
 
             // Setup the progress gradient (red -> orange -> yellow -> green)
             SerializedProperty gradientProp = hudSO.FindProperty("m_ProgressGradient");

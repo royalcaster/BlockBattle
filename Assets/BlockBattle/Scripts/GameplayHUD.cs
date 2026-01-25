@@ -14,6 +14,7 @@ namespace BlockBattle
         [Header("References")]
         [SerializeField] private BuildValidator m_BuildValidator;
         [SerializeField] private ReferenceStructureSpawner m_ReferenceSpawner;
+        [SerializeField] private LevelManager m_LevelManager;
 
         [Header("UI Elements")]
         [SerializeField] private RectTransform m_BlockIndicatorContainer;
@@ -21,6 +22,7 @@ namespace BlockBattle
         [SerializeField] private Image m_ProgressBarFillImage;
         [SerializeField] private TextMeshProUGUI m_PercentageText;
         [SerializeField] private TextMeshProUGUI m_LevelText;
+        [SerializeField] private TextMeshProUGUI m_TimerText;
 
         [Header("Block Indicator Settings")]
         [SerializeField] private float m_IndicatorSize = 60f;
@@ -74,6 +76,18 @@ namespace BlockBattle
                 m_BuildValidator = FindAnyObjectByType<BuildValidator>();
             if (m_ReferenceSpawner == null)
                 m_ReferenceSpawner = FindAnyObjectByType<ReferenceStructureSpawner>();
+            if (m_LevelManager == null)
+                m_LevelManager = FindAnyObjectByType<LevelManager>();
+
+            // Subscribe to game state events
+            if (m_LevelManager != null)
+            {
+                m_LevelManager.OnLevelStarted += OnGameStarted;
+                m_LevelManager.OnAllLevelsCompleted += OnGameEnded;
+            }
+
+            // Hide HUD initially (until game starts)
+            SetHUDVisible(false);
 
             // Auto-find fill image if not assigned but RectTransform is
             if (m_ProgressBarFillImage == null && m_ProgressBarFill != null)
@@ -130,6 +144,12 @@ namespace BlockBattle
             if (m_ReferenceSpawner != null)
                 m_ReferenceSpawner.OnStructureSpawned -= OnStructureChanged;
 
+            if (m_LevelManager != null)
+            {
+                m_LevelManager.OnLevelStarted -= OnGameStarted;
+                m_LevelManager.OnAllLevelsCompleted -= OnGameEnded;
+            }
+
             // Clean up materials and mesh objects
             foreach (var indicator in m_BlockIndicators)
             {
@@ -137,6 +157,41 @@ namespace BlockBattle
                     Destroy(indicator.Material);
                 if (indicator.MeshObject != null)
                     Destroy(indicator.MeshObject);
+            }
+        }
+
+        /// <summary>
+        /// Called when a level starts - show the HUD.
+        /// </summary>
+        private void OnGameStarted(int levelNumber)
+        {
+            SetHUDVisible(true);
+        }
+
+        /// <summary>
+        /// Called when all levels are completed - hide the HUD.
+        /// </summary>
+        private void OnGameEnded()
+        {
+            SetHUDVisible(false);
+        }
+
+        /// <summary>
+        /// Sets the visibility of the entire HUD.
+        /// </summary>
+        /// <param name="visible">Whether the HUD should be visible</param>
+        public void SetHUDVisible(bool visible)
+        {
+            // Get the canvas or main container to toggle visibility
+            Canvas canvas = GetComponent<Canvas>();
+            if (canvas != null)
+            {
+                canvas.enabled = visible;
+            }
+            else
+            {
+                // Fallback: toggle the game object
+                gameObject.SetActive(visible);
             }
         }
 
@@ -164,6 +219,20 @@ namespace BlockBattle
 
             // Animate progress bar
             AnimateProgressBar();
+
+            // Update timer display
+            UpdateTimerDisplay();
+        }
+
+        /// <summary>
+        /// Updates the timer text display.
+        /// </summary>
+        private void UpdateTimerDisplay()
+        {
+            if (m_TimerText == null || m_LevelManager == null)
+                return;
+
+            m_TimerText.text = LevelManager.FormatTime(m_LevelManager.ElapsedTime);
         }
 
 

@@ -476,6 +476,29 @@ namespace BlockBattle
         }
 
         /// <summary>
+        /// Gets the rotation of the build zone (or table fallback).
+        /// </summary>
+        private Quaternion GetZoneRotation()
+        {
+            if (m_BuildZone != null)
+            {
+                // If BuildZone is rotated, use it
+                if (m_BuildZone.transform.rotation != Quaternion.identity)
+                {
+                    return m_BuildZone.transform.rotation;
+                }
+            }
+            
+            // Fallback to table rotation if BuildZone is identity (or null)
+            if (m_Table != null)
+            {
+                return m_Table.transform.rotation;
+            }
+            
+            return Quaternion.identity;
+        }
+
+        /// <summary>
         /// Quickly evaluates how well a given rotation matches the placed blocks.
         /// Returns (correct count, total position error).
         /// </summary>
@@ -486,7 +509,11 @@ namespace BlockBattle
             Vector3 referenceCenter,
             float yRotationOffset)
         {
-            Quaternion rotOffset = Quaternion.Euler(0, yRotationOffset, 0);
+            // Calculate total rotation: Zone Rotation * Offset Rotation
+            Quaternion zoneRotation = GetZoneRotation();
+            Quaternion offsetRotation = Quaternion.Euler(0, yRotationOffset, 0);
+            Quaternion totalRotation = zoneRotation * offsetRotation;
+
             int correctCount = 0;
             float totalError = 0f;
 
@@ -514,7 +541,7 @@ namespace BlockBattle
                 {
                     Vector3 relPos = (entry.Position - referenceCenter) * m_StructureScale;
                     relPos.y += m_EffectiveHeightOffset;
-                    return rotOffset * relPos;
+                    return totalRotation * relPos;
                 }).ToList();
 
                 // Greedy match: for each placed block, find nearest expected position
@@ -547,7 +574,7 @@ namespace BlockBattle
                             // Also check rotation if enabled
                             if (m_ValidateRotation)
                             {
-                                Quaternion expectedRot = rotOffset * refs[bestIdx].Rotation;
+                                Quaternion expectedRot = totalRotation * refs[bestIdx].Rotation;
                                 float rotError = CalculateRotationError(block.transform.rotation, expectedRot, refs[bestIdx].AllowedRotations);
                                 if (rotError <= m_RotationTolerance)
                                     correctCount++;
@@ -612,13 +639,16 @@ namespace BlockBattle
 
                 // Calculate expected positions for this group (with rotation offset)
                 var expectedPositions = new List<Vector3>();
-                Quaternion rotOffset = Quaternion.Euler(0, yRotationOffset, 0);
+                Quaternion zoneRotation = GetZoneRotation();
+                Quaternion offsetRotation = Quaternion.Euler(0, yRotationOffset, 0);
+                Quaternion totalRotation = zoneRotation * offsetRotation;
+
                 foreach (var (entry, _) in refEntries)
                 {
                     Vector3 relPos = (entry.Position - referenceCenter) * m_StructureScale;
                     relPos.y += m_EffectiveHeightOffset;
-                    // Apply Y-axis rotation to the relative position
-                    relPos = rotOffset * relPos;
+                    // Apply total rotation (Zone * Offset) to the relative position
+                    relPos = totalRotation * relPos;
                     expectedPositions.Add(relPos);
                 }
 
@@ -648,8 +678,8 @@ namespace BlockBattle
                         Vector3 expectedWorldPos = buildCenter + refRelativePos;
                         float posError = Vector3.Distance(placedRelativePos, refRelativePos);
                         
-                        // Apply rotation offset to expected rotation as well
-                        Quaternion expectedRotation = rotOffset * refEntry.Rotation;
+                        // Apply total rotation to expected rotation as well
+                        Quaternion expectedRotation = totalRotation * refEntry.Rotation;
                         float rotationError = CalculateRotationError(matchedBlock.transform.rotation, expectedRotation, refEntry.AllowedRotations);
                         
                         // PIVOT COMPENSATION: Blocks with FlipY allowed often have off-center pivots
@@ -1087,15 +1117,17 @@ namespace BlockBattle
         private void CacheExpectedPositions(List<BlockSpawnEntry> entries, Vector3 buildCenter, Vector3 referenceCenter)
         {
             m_ExpectedWorldPositions.Clear();
-            Quaternion rotOffset = Quaternion.Euler(0, m_LastBestRotation, 0);
+            Quaternion zoneRotation = GetZoneRotation();
+            Quaternion offsetRotation = Quaternion.Euler(0, m_LastBestRotation, 0);
+            Quaternion totalRotation = zoneRotation * offsetRotation;
             
             foreach (var entry in entries)
             {
                 if (entry == null) continue;
                 Vector3 relativePos = (entry.Position - referenceCenter) * m_StructureScale;
                 relativePos.y += m_EffectiveHeightOffset;
-                // Apply the auto-alignment rotation
-                relativePos = rotOffset * relativePos;
+                // Apply the total rotation
+                relativePos = totalRotation * relativePos;
                 Vector3 worldPos = buildCenter + relativePos;
                 m_ExpectedWorldPositions.Add(worldPos);
             }

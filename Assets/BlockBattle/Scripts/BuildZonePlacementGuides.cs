@@ -33,6 +33,9 @@ namespace BlockBattle
         [SerializeField, Tooltip("Maximum height above ground level to show guides (blocks above this are considered stacked)")]
         private float m_MaxGroundLevelHeight = 0.08f; // Only show guides for blocks at ground level
 
+        [SerializeField, Tooltip("Additional rotation offset applied to all guide markers (in degrees)")]
+        private float m_RotationOffset = 0f;
+
         [Header("Colors")]
         [SerializeField]
         private Color m_UnfilledGuideColor = new Color(1f, 1f, 1f, 0.3f);
@@ -163,9 +166,7 @@ namespace BlockBattle
             }
 
             m_Guides.Clear();
-            m_GuidesContainer = new GameObject("PlacementGuides");
-            m_GuidesContainer.transform.SetParent(transform, false);
-
+            
             var config = m_BuildValidator.ReferenceConfiguration;
             var entries = config.SpawnEntries;
             if (entries == null || entries.Count == 0) return;
@@ -206,6 +207,12 @@ namespace BlockBattle
                 Debug.LogWarning("BuildZonePlacementGuides: Invalid build zone position, using zero");
                 buildZonePos = Vector3.zero;
             }
+            
+            // Create container centered at build zone position so rotation works correctly
+            m_GuidesContainer = new GameObject("PlacementGuides");
+            m_GuidesContainer.transform.SetParent(transform, false); // Use local relative position
+            m_GuidesContainer.transform.localPosition = Vector3.zero;
+            m_GuidesContainer.transform.localRotation = Quaternion.Euler(0, m_RotationOffset, 0);
 
             // Get structure scale and height offset from BuildValidator (if available)
             float structureScale = 1.0f;
@@ -270,9 +277,9 @@ namespace BlockBattle
                     continue;
                 }
 
-                // Calculate world position for this guide (apply structure scale and height offset)
+                // Calculate local position for this guide (relative to build zone center)
                 Vector3 relativePos = (entry.Position - referenceCenter) * structureScale;
-                relativePos.y += heightOffset; // Apply height offset to align with table
+                relativePos.y = m_GuideHeight; // Place on floor (Y is height above build zone)
                 
                 // Validate relative position
                 if (!IsValidVector(relativePos))
@@ -280,19 +287,9 @@ namespace BlockBattle
                     Debug.LogWarning($"BuildZonePlacementGuides: Invalid relative position calculated for {entry.BlockType} ({entry.BlockColor}), skipping");
                     continue;
                 }
-                
-                Vector3 guideWorldPos = buildZonePos + relativePos;
-                guideWorldPos.y = buildZonePos.y + m_GuideHeight; // Place on floor
-
-                // Validate world position before creating guide
-                if (!IsValidVector(guideWorldPos))
-                {
-                    Debug.LogWarning($"BuildZonePlacementGuides: Invalid world position calculated for {entry.BlockType} ({entry.BlockColor}) at {guideWorldPos}, skipping");
-                    continue;
-                }
 
                 // Check for XZ position overlap with existing guides (Y doesn't matter since all guides are on floor)
-                Vector2 xzPos = new Vector2(guideWorldPos.x, guideWorldPos.z);
+                Vector2 xzPos = new Vector2(relativePos.x, relativePos.z);
                 bool isTooClose = false;
                 foreach (var existingXZ in createdXZPositions)
                 {
@@ -312,13 +309,13 @@ namespace BlockBattle
                 
                 createdXZPositions.Add(xzPos);
 
-                // Create the guide marker
-                PlacementGuide guide = CreateGuideMarker(entry, guideWorldPos, structureScale);
+                // Create the guide marker using local position
+                PlacementGuide guide = CreateGuideMarker(entry, relativePos, structureScale);
                 if (guide != null)
                 {
                     guide.ExpectedRelativePosition = relativePos; // Store expected relative position for matching
                     m_Guides.Add(guide);
-                    Debug.Log($"BuildZonePlacementGuides: Created guide for {entry.BlockType} ({entry.BlockColor}) at {guideWorldPos}");
+                    Debug.Log($"BuildZonePlacementGuides: Created guide for {entry.BlockType} ({entry.BlockColor}) at local pos {relativePos}");
                 }
                 else
                 {
@@ -335,7 +332,10 @@ namespace BlockBattle
         /// Shows the FOOTPRINT (base) of each block on the floor.
         /// Uses actual block dimensions and accounts for rotation.
         /// </summary>
-        private PlacementGuide CreateGuideMarker(BlockSpawnEntry entry, Vector3 worldPosition, float structureScale)
+        /// <param name="entry">The block spawn entry to create a guide for.</param>
+        /// <param name="localPosition">Local position relative to the guides container (build zone center).</param>
+        /// <param name="structureScale">Scale factor for the structure.</param>
+        private PlacementGuide CreateGuideMarker(BlockSpawnEntry entry, Vector3 localPosition, float structureScale)
         {
             // Validate inputs
             if (entry == null)
@@ -344,9 +344,9 @@ namespace BlockBattle
                 return null;
             }
             
-            if (!IsValidVector(worldPosition))
+            if (!IsValidVector(localPosition))
             {
-                Debug.LogWarning($"BuildZonePlacementGuides: Cannot create guide marker at invalid position {worldPosition}");
+                Debug.LogWarning($"BuildZonePlacementGuides: Cannot create guide marker at invalid position {localPosition}");
                 return null;
             }
             
@@ -360,7 +360,7 @@ namespace BlockBattle
             {
                 BlockType = entry.BlockType,
                 BlockColor = entry.BlockColor,
-                LocalPosition = worldPosition - (m_BuildZone != null ? m_BuildZone.transform.position : transform.position)
+                LocalPosition = localPosition
             };
 
             // Actual block dimensions (from BlockBattleBlockCreator.cs):
@@ -458,21 +458,12 @@ namespace BlockBattle
 
             marker.name = $"Guide_{entry.BlockType}_{entry.BlockColor}";
             marker.transform.SetParent(m_GuidesContainer.transform, false);
-            marker.transform.position = worldPosition;
             
-            // For Rectangle blocks lying flat, we need to rotate the footprint correctly
-            // The rectangle's long dimension should align with the block's rotation
-            if (entry.BlockType == BlockType.Rectangle && !isStandingUpright)
-            {
-                // Rectangle lying flat: long dimension (0.2m) should align with forward direction
-                // Apply Y rotation to orient the footprint correctly
-                marker.transform.rotation = Quaternion.Euler(0, yRotation, 0);
-            }
-            else
-            {
-                // For other blocks, just apply Y rotation
-                marker.transform.rotation = Quaternion.Euler(0, yRotation, 0);
-            }
+            // Use local position so the container's rotation affects all guides as a group
+            marker.transform.localPosition = localPosition;
+            
+            // Apply Y rotation from the block's original rotation (local rotation)
+            marker.transform.localRotation = Quaternion.Euler(0, yRotation, 0);
             
             marker.transform.localScale = scale;
             guide.ExpectedScale = scale;

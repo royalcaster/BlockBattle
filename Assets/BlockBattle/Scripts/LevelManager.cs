@@ -109,6 +109,30 @@ namespace BlockBattle
         private bool m_ValidationEnabled = false;
         private int m_ExpectedBlockCount = 0;
         private Coroutine m_CountdownCoroutine = null;
+        private bool m_GameStarted = false;
+        private float m_GameTimer = 0f;
+        private bool m_TimerRunning = false;
+        private float m_FinalTime = 0f;
+
+        /// <summary>
+        /// Gets whether the game has been started via StartGame().
+        /// </summary>
+        public bool IsGameStarted => m_GameStarted;
+
+        /// <summary>
+        /// Gets the current elapsed game time in seconds.
+        /// </summary>
+        public float ElapsedTime => m_TimerRunning ? m_GameTimer : m_FinalTime;
+
+        /// <summary>
+        /// Gets whether the timer is currently running.
+        /// </summary>
+        public bool IsTimerRunning => m_TimerRunning;
+
+        /// <summary>
+        /// Gets the final completion time (only valid after all levels complete).
+        /// </summary>
+        public float FinalCompletionTime => m_FinalTime;
 
         /// <summary>
         /// Gets the current level number (1-based for display).
@@ -199,16 +223,52 @@ namespace BlockBattle
                 m_DestructionManager.OnDestructionComplete += OnDestructionPhaseComplete;
             }
 
+            // Subscribe to shelf events for last level door close detection
+            if (m_ShelfSpawner != null)
+            {
+                m_ShelfSpawner.OnDoorsClosedWithBlocksReturned += OnShelfDoorsClosedWithBlocks;
+            }
+
             // Hide success panel initially
             if (m_SuccessPanel != null)
                 m_SuccessPanel.SetActive(false);
 
+            // Game now waits for StartGame() to be called (via StartScreenUI)
+            // Do NOT automatically start level here
+        }
+
+        /// <summary>
+        /// Starts the game. Called by StartScreenUI when player presses the Start button.
+        /// </summary>
+        public void StartGame()
+        {
+            if (m_GameStarted)
+            {
+                Debug.LogWarning("LevelManager: Game already started!");
+                return;
+            }
+
+            m_GameStarted = true;
+            m_GameTimer = 0f;
+            m_TimerRunning = true;
+            Debug.Log("LevelManager: Game started! Beginning Level 1...");
+            
             // Start with Level 1
             StartLevel(0);
         }
 
         private void Update()
         {
+            // Don't run game loop until game is started
+            if (!m_GameStarted)
+                return;
+
+            // Update game timer
+            if (m_TimerRunning)
+            {
+                m_GameTimer += Time.deltaTime;
+            }
+
             switch (m_CurrentPhase)
             {
                 case LevelPhase.Building:
@@ -242,6 +302,10 @@ namespace BlockBattle
             {
                 m_DestructionManager.OnDestructionComplete -= OnDestructionPhaseComplete;
             }
+            if (m_ShelfSpawner != null)
+            {
+                m_ShelfSpawner.OnDoorsClosedWithBlocksReturned -= OnShelfDoorsClosedWithBlocks;
+            }
         }
 
         #region Phase Updates
@@ -268,6 +332,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Updates logic during the waiting for return phase.
+        /// On the last level, after blocks are returned, waits for doors to close.
         /// </summary>
         private void UpdateWaitingForReturnPhase()
         {
@@ -277,7 +342,44 @@ namespace BlockBattle
             // Check if all blocks are returned to shelf
             if (m_ShelfSpawner.AreAllBlocksReturned(m_ExpectedBlockCount))
             {
-                Debug.Log($"LevelManager: All {m_ExpectedBlockCount} blocks returned to shelf! Starting countdown...");
+                // Check if we're already waiting for doors to close
+                if (m_ShelfSpawner.IsWaitingForDoorsClose)
+                    return;
+
+                bool isLastLevel = (m_CurrentLevelIndex >= m_LevelConfigurations.Count - 1);
+
+                if (isLastLevel)
+                {
+                    // Last level: blocks returned, now wait for doors to close
+                    Debug.Log($"LevelManager: All {m_ExpectedBlockCount} blocks returned! Close the shelf to finish.");
+                    m_ShelfSpawner.StartWaitingForDoorsClose(m_ExpectedBlockCount);
+                    ShowCloseShelfMessage();
+                }
+                else
+                {
+                    // Non-last level: this shouldn't happen (we clear blocks immediately)
+                    Debug.Log($"LevelManager: All {m_ExpectedBlockCount} blocks returned to shelf! Starting countdown...");
+                    StartCountdown();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Called when shelf doors are closed with all blocks returned (last level only).
+        /// </summary>
+        private void OnShelfDoorsClosedWithBlocks()
+        {
+            bool isLastLevel = (m_CurrentLevelIndex >= m_LevelConfigurations.Count - 1);
+            
+            if (isLastLevel && m_CurrentPhase == LevelPhase.WaitingForReturn)
+            {
+                Debug.Log("LevelManager: Shelf doors closed! Finishing game...");
+                
+                // Stop timer immediately when doors close
+                m_TimerRunning = false;
+                m_FinalTime = m_GameTimer;
+                
+                // Now start the countdown to show final results
                 StartCountdown();
             }
         }
@@ -285,13 +387,19 @@ namespace BlockBattle
         /// <summary>
         /// Updates logic during the countdown phase.
         /// Monitors for conditions that should cancel the countdown.
+        /// Only applies to the last level where blocks must stay in the shelf.
         /// </summary>
         private void UpdateCountdownPhase()
         {
+            // Only check block return status on the last level
+            bool isLastLevel = (m_CurrentLevelIndex >= m_LevelConfigurations.Count - 1);
+            if (!isLastLevel)
+                return; // No cancellation for non-last levels
+
             if (m_ShelfSpawner == null)
                 return;
 
-            // Cancel countdown if blocks leave the shelf
+            // Cancel countdown if blocks leave the shelf (last level only)
             if (!m_ShelfSpawner.AreAllBlocksReturned(m_ExpectedBlockCount))
             {
                 CancelCountdown();
@@ -433,9 +541,7 @@ namespace BlockBattle
         /// </summary>
         private void OnDestructionPhaseComplete()
         {
-            Debug.Log($"LevelManager: Destruction phase complete! Transitioning to WaitingForReturn...");
-
-            m_CurrentPhase = LevelPhase.WaitingForReturn;
+            Debug.Log($"LevelManager: Destruction phase complete!");
 
             // Teleport player back to building position (if specified)
             if (m_XRSetup != null && m_BuildingTeleportPosition != null)
@@ -445,10 +551,25 @@ namespace BlockBattle
 
             OnDestructionPhaseCompleted?.Invoke();
 
-            // Show return blocks message
-            ShowReturnBlocksMessage();
+            // Check if this is the last level
+            bool isLastLevel = (m_CurrentLevelIndex >= m_LevelConfigurations.Count - 1);
 
-            Debug.Log($"LevelManager: Waiting for player to return {m_ExpectedBlockCount} blocks to shelf...");
+            if (isLastLevel)
+            {
+                // Last level: wait for blocks to be returned to shelf
+                Debug.Log($"LevelManager: Last level! Waiting for player to return {m_ExpectedBlockCount} blocks to shelf...");
+                m_CurrentPhase = LevelPhase.WaitingForReturn;
+                ShowReturnBlocksMessage();
+            }
+            else
+            {
+                // Not the last level: clear blocks immediately and proceed to next level
+                Debug.Log($"LevelManager: Clearing blocks and proceeding to next level...");
+                ClearPlacedBlocks();
+                
+                // Skip WaitingForReturn phase and go directly to countdown
+                StartCountdown();
+            }
         }
 
         #endregion
@@ -472,6 +593,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Cancels the current countdown and returns to WaitingForReturn phase.
+        /// This is only used on the last level when blocks are removed from the shelf.
         /// </summary>
         private void CancelCountdown()
         {
@@ -484,9 +606,12 @@ namespace BlockBattle
             m_CurrentPhase = LevelPhase.WaitingForReturn;
             Debug.Log("LevelManager: Countdown cancelled - blocks removed from shelf!");
             
+            // Resume timer since we're back to waiting
+            m_TimerRunning = true;
+            
             OnCountdownCancelled?.Invoke();
             
-            // Show return blocks message again
+            // Show return blocks message again (only happens on last level)
             ShowReturnBlocksMessage();
         }
 
@@ -554,8 +679,10 @@ namespace BlockBattle
             }
             else
             {
-                // All levels complete!
-                Debug.Log("LevelManager: ALL LEVELS COMPLETE! Congratulations!");
+                // All levels complete - stop timer and save final time
+                m_TimerRunning = false;
+                m_FinalTime = m_GameTimer;
+                Debug.Log($"LevelManager: ALL LEVELS COMPLETE! Final time: {FormatTime(m_FinalTime)}");
                 ShowAllLevelsCompleteMessage();
                 OnAllLevelsCompleted?.Invoke();
             }
@@ -610,6 +737,28 @@ namespace BlockBattle
         }
 
         /// <summary>
+        /// Shows the "close the shelf" message (last level only).
+        /// </summary>
+        private void ShowCloseShelfMessage()
+        {
+            if (m_SuccessPanel != null)
+            {
+                m_SuccessPanel.SetActive(true);
+            }
+
+            if (m_SuccessText != null)
+            {
+                m_SuccessText.text = $"All blocks returned!\n\nClose the shelf to finish!";
+            }
+
+            // Also update HUD if available
+            if (m_GameplayHUD != null)
+            {
+                m_GameplayHUD.ShowStatusMessage("Close the shelf to finish!");
+            }
+        }
+
+        /// <summary>
         /// Shows the countdown message.
         /// </summary>
         /// <param name="secondsRemaining">Seconds remaining in countdown</param>
@@ -618,13 +767,15 @@ namespace BlockBattle
             if (m_SuccessText != null)
             {
                 int nextLevel = m_CurrentLevelIndex + 2;
-                if (nextLevel <= m_LevelConfigurations.Count)
+                bool isLastLevel = (m_CurrentLevelIndex >= m_LevelConfigurations.Count - 1);
+                
+                if (isLastLevel)
                 {
-                    m_SuccessText.text = $"Blocks Returned!\n\nLevel {nextLevel} starting in {secondsRemaining}...";
+                    m_SuccessText.text = $"Shelf Closed!\n\nFinal time: {FormatTime(m_FinalTime)}\n\nResults in {secondsRemaining}...";
                 }
                 else
                 {
-                    m_SuccessText.text = $"Blocks Returned!\n\nFinal results in {secondsRemaining}...";
+                    m_SuccessText.text = $"Great job!\n\nLevel {nextLevel} starting in {secondsRemaining}...";
                 }
             }
 
@@ -777,6 +928,64 @@ namespace BlockBattle
             {
                 StartLevel(nextLevelIndex);
             }
+        }
+
+        /// <summary>
+        /// Resets the game to initial state so it can be played again.
+        /// Call this before showing the start screen for a new game.
+        /// </summary>
+        public void ResetGame()
+        {
+            // Cancel any ongoing countdown
+            if (m_CountdownCoroutine != null)
+            {
+                StopCoroutine(m_CountdownCoroutine);
+                m_CountdownCoroutine = null;
+            }
+
+            // Reset state
+            m_GameStarted = false;
+            m_CurrentLevelIndex = 0;
+            m_CurrentPhase = LevelPhase.Building;
+            m_ValidationEnabled = false;
+            m_ValidationTimer = 0f;
+            m_GameTimer = 0f;
+            m_TimerRunning = false;
+
+            // Clear existing blocks
+            ClearPlacedBlocks();
+
+            // Clear reference structure
+            if (m_ReferenceSpawner != null)
+            {
+                m_ReferenceSpawner.ClearStructure();
+            }
+
+            // Hide success panel
+            if (m_SuccessPanel != null)
+            {
+                m_SuccessPanel.SetActive(false);
+            }
+
+            // Reset HUD
+            if (m_GameplayHUD != null)
+            {
+                m_GameplayHUD.ResetHUD();
+            }
+
+            Debug.Log("LevelManager: Game reset. Ready for new game.");
+        }
+
+        /// <summary>
+        /// Formats a time value in seconds to a readable MM:SS.ss format.
+        /// </summary>
+        /// <param name="timeInSeconds">Time in seconds</param>
+        /// <returns>Formatted time string</returns>
+        public static string FormatTime(float timeInSeconds)
+        {
+            int minutes = Mathf.FloorToInt(timeInSeconds / 60f);
+            float seconds = timeInSeconds % 60f;
+            return $"{minutes:00}:{seconds:00.00}";
         }
 
         #endregion
