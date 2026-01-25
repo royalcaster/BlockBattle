@@ -425,8 +425,8 @@ namespace BlockBattle
                 BuildValidationResult result = m_BuildValidator.ValidateBuild();
                 if (result != null && result.AccuracyPercentage > 0)
                 {
-                    // Report accuracy to networked manager
-                    m_NetworkedLevelManager.ReportBuildCompleteServerRpc(result.AccuracyPercentage);
+                    // Report accuracy to networked manager using workspace index from validator
+                    m_NetworkedLevelManager.HandleBuildCompletion(m_BuildValidator.WorkspaceIndex, result.AccuracyPercentage);
                 }
             }
         }

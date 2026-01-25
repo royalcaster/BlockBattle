@@ -1,5 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using UnityEngine.XR.Interaction.Toolkit.Interactors;
 using TMPro;
 using System.Collections.Generic;
 using Unity.Netcode;
@@ -47,6 +49,10 @@ namespace BlockBattle
         [SerializeField] private GameObject m_MultiplayerPanel;
         [SerializeField] private TextMeshProUGUI m_GameStatusText;
 
+        [Header("Restart Button")]
+        [SerializeField] private Button m_RestartButton;
+        [SerializeField] private XRSimpleInteractable m_RestartInteractable;
+
         [Header("Block Meshes (Optional - uses primitives if not assigned)")]
         [SerializeField] private Mesh m_CubeMesh;
         [SerializeField] private Mesh m_CylinderMesh;
@@ -66,6 +72,7 @@ namespace BlockBattle
         private NetworkedLevelManager _networkedLevelManager;
         private float _opponentAccuracy = 0f;
         private float _displayedOpponentAccuracy = 0f;
+        private bool _hasInitializedReferences = false;
 
         private class BlockIndicator
         {
@@ -85,18 +92,22 @@ namespace BlockBattle
 
         private void Start()
         {
-            // Find references
+            // Check multiplayer mode first (before finding references)
+            CheckMultiplayerMode();
+
+            // Find references - in multiplayer, find the one for local player's workspace
             if (m_BuildValidator == null)
-                m_BuildValidator = FindAnyObjectByType<BuildValidator>();
+            {
+                m_BuildValidator = FindLocalPlayerBuildValidator();
+            }
             if (m_ReferenceSpawner == null)
-                m_ReferenceSpawner = FindAnyObjectByType<ReferenceStructureSpawner>();
+            {
+                m_ReferenceSpawner = FindLocalPlayerReferenceSpawner();
+            }
 
             // Auto-find fill image if not assigned but RectTransform is
             if (m_ProgressBarFillImage == null && m_ProgressBarFill != null)
                 m_ProgressBarFillImage = m_ProgressBarFill.GetComponent<Image>();
-
-            // Check multiplayer mode
-            CheckMultiplayerMode();
 
             // Load block meshes
             LoadBlockMeshes();
@@ -142,6 +153,27 @@ namespace BlockBattle
             {
                 CreateBlockIndicators(m_BuildValidator.ReferenceConfiguration);
             }
+
+            // Setup restart button
+            SetupRestartButton();
+        }
+
+        /// <summary>
+        /// Sets up the restart button for both UI and XR interaction.
+        /// </summary>
+        private void SetupRestartButton()
+        {
+            // Standard UI button
+            if (m_RestartButton != null)
+            {
+                m_RestartButton.onClick.AddListener(OnRestartButtonPressed);
+            }
+
+            // XR Interactable for VR controllers
+            if (m_RestartInteractable != null)
+            {
+                m_RestartInteractable.selectEntered.AddListener((args) => OnRestartButtonPressed());
+            }
         }
 
         private void OnDestroy()
@@ -158,6 +190,10 @@ namespace BlockBattle
                 _networkedLevelManager.OnPlayerBuildComplete -= OnPlayerBuildComplete;
                 _networkedLevelManager.OnGameComplete -= OnGameComplete;
             }
+
+            // Unsubscribe from restart button
+            if (m_RestartButton != null)
+                m_RestartButton.onClick.RemoveListener(OnRestartButtonPressed);
 
             // Clean up materials and mesh objects
             foreach (var indicator in m_BlockIndicators)
@@ -178,6 +214,13 @@ namespace BlockBattle
 
         private void Update()
         {
+            // In multiplayer, try to find references if not yet initialized
+            // (workspace assignment may happen after Start())
+            if (_isMultiplayerMode && !_hasInitializedReferences)
+            {
+                TryInitializeMultiplayerReferences();
+            }
+
             // Update validation
             m_UpdateTimer += Time.deltaTime;
             if (m_UpdateTimer >= m_UpdateInterval && m_BuildValidator != null)
@@ -198,6 +241,46 @@ namespace BlockBattle
             if (_isMultiplayerMode)
             {
                 UpdateMultiplayerUI();
+            }
+        }
+
+        /// <summary>
+        /// Tries to initialize multiplayer references if workspace is now assigned.
+        /// </summary>
+        private void TryInitializeMultiplayerReferences()
+        {
+            var workspaceManager = PlayerWorkspaceManager.Instance;
+            if (workspaceManager == null) return;
+
+            var localWorkspace = workspaceManager.GetLocalPlayerWorkspace();
+            if (localWorkspace == null) return;
+
+            // Found the workspace, initialize references
+            if (m_BuildValidator == null && localWorkspace.BuildValidator != null)
+            {
+                m_BuildValidator = localWorkspace.BuildValidator;
+                Debug.Log($"GameplayHUD: Late-initialized BuildValidator for workspace {localWorkspace.WorkspaceIndex}");
+            }
+
+            if (m_ReferenceSpawner == null && localWorkspace.ReferenceStructureSpawner != null)
+            {
+                m_ReferenceSpawner = localWorkspace.ReferenceStructureSpawner;
+                
+                // Subscribe to structure changes
+                m_ReferenceSpawner.OnStructureSpawned += OnStructureChanged;
+                if (m_ReferenceSpawner.CurrentSpawnConfiguration != null)
+                {
+                    OnStructureChanged(m_ReferenceSpawner.CurrentSpawnConfiguration);
+                }
+                
+                Debug.Log($"GameplayHUD: Late-initialized ReferenceStructureSpawner for workspace {localWorkspace.WorkspaceIndex}");
+            }
+
+            // Mark as initialized if both are found
+            if (m_BuildValidator != null && m_ReferenceSpawner != null)
+            {
+                _hasInitializedReferences = true;
+                Debug.Log("GameplayHUD: Multiplayer references fully initialized");
             }
         }
 
@@ -239,6 +322,54 @@ namespace BlockBattle
                     m_MultiplayerPanel.SetActive(false);
                 }
             }
+        }
+
+        /// <summary>
+        /// Finds the BuildValidator for the local player's workspace in multiplayer mode.
+        /// Falls back to finding any BuildValidator in single-player mode.
+        /// </summary>
+        private BuildValidator FindLocalPlayerBuildValidator()
+        {
+            if (_isMultiplayerMode)
+            {
+                var workspaceManager = PlayerWorkspaceManager.Instance;
+                if (workspaceManager != null)
+                {
+                    var localWorkspace = workspaceManager.GetLocalPlayerWorkspace();
+                    if (localWorkspace != null && localWorkspace.BuildValidator != null)
+                    {
+                        Debug.Log($"GameplayHUD: Found BuildValidator for local workspace {localWorkspace.WorkspaceIndex}");
+                        return localWorkspace.BuildValidator;
+                    }
+                }
+            }
+            
+            // Fallback: find any BuildValidator
+            return FindAnyObjectByType<BuildValidator>();
+        }
+
+        /// <summary>
+        /// Finds the ReferenceStructureSpawner for the local player's workspace in multiplayer mode.
+        /// Falls back to finding any ReferenceStructureSpawner in single-player mode.
+        /// </summary>
+        private ReferenceStructureSpawner FindLocalPlayerReferenceSpawner()
+        {
+            if (_isMultiplayerMode)
+            {
+                var workspaceManager = PlayerWorkspaceManager.Instance;
+                if (workspaceManager != null)
+                {
+                    var localWorkspace = workspaceManager.GetLocalPlayerWorkspace();
+                    if (localWorkspace != null && localWorkspace.ReferenceStructureSpawner != null)
+                    {
+                        Debug.Log($"GameplayHUD: Found ReferenceStructureSpawner for local workspace {localWorkspace.WorkspaceIndex}");
+                        return localWorkspace.ReferenceStructureSpawner;
+                    }
+                }
+            }
+            
+            // Fallback: find any ReferenceStructureSpawner
+            return FindAnyObjectByType<ReferenceStructureSpawner>();
         }
 
         /// <summary>
@@ -878,6 +1009,37 @@ namespace BlockBattle
             {
                 m_LevelText.text = message;
             }
+        }
+
+        #endregion
+
+        #region Restart Game
+
+        /// <summary>
+        /// Called when the restart button is pressed.
+        /// Restarts the current level by clearing blocks and respawning.
+        /// </summary>
+        public void OnRestartButtonPressed()
+        {
+            Debug.Log("GameplayHUD: Restart button pressed");
+
+            // Try multiplayer restart first
+            if (_isMultiplayerMode && _networkedLevelManager != null)
+            {
+                _networkedLevelManager.RestartGame();
+            }
+            else
+            {
+                // Single-player restart via LevelManager
+                var levelManager = FindAnyObjectByType<LevelManager>();
+                if (levelManager != null)
+                {
+                    levelManager.RestartLevel();
+                }
+            }
+
+            // Reset HUD state
+            ResetHUD();
         }
 
         #endregion

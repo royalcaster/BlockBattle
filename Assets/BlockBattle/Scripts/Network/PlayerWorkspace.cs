@@ -214,14 +214,24 @@ namespace BlockBattle.Network
         /// <param name="configuration">The block spawn configuration</param>
         public void SpawnBlocks(BlockSpawnConfiguration configuration)
         {
+            Debug.Log($"*** PlayerWorkspace {_workspaceIndex}: SpawnBlocks called with config {(configuration != null ? configuration.ConfigurationName : "NULL")} ***");
+            
             if (_shelfBlockSpawner == null)
             {
-                Debug.LogError($"PlayerWorkspace {_workspaceIndex}: ShelfBlockSpawner is not assigned!");
+                Debug.LogError($"*** PlayerWorkspace {_workspaceIndex}: ShelfBlockSpawner is NULL! Cannot spawn blocks! ***");
                 return;
             }
 
+            // Ensure the shelf spawner has the correct workspace index
+            _shelfBlockSpawner.WorkspaceIndex = _workspaceIndex;
+            Debug.Log($"*** PlayerWorkspace {_workspaceIndex}: Set ShelfBlockSpawner.WorkspaceIndex to {_workspaceIndex} ***");
+            
             _shelfBlockSpawner.SpawnConfiguration = configuration;
+            Debug.Log($"*** PlayerWorkspace {_workspaceIndex}: Set SpawnConfiguration, now calling SpawnBlocks() ***");
+            
             _shelfBlockSpawner.SpawnBlocks();
+            
+            Debug.Log($"*** PlayerWorkspace {_workspaceIndex}: SpawnBlocks() completed ***");
         }
 
         /// <summary>
@@ -251,6 +261,10 @@ namespace BlockBattle.Network
                 return;
             }
 
+            // Ensure the validator has the correct workspace index
+            _buildValidator.WorkspaceIndex = _workspaceIndex;
+            Debug.Log($"PlayerWorkspace {_workspaceIndex}: Setting BuildValidator.WorkspaceIndex to {_workspaceIndex}");
+            
             _buildValidator.ReferenceConfiguration = configuration;
             _buildValidator.ResetAlignmentLock();
         }

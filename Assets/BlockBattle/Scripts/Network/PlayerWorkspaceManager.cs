@@ -488,11 +488,13 @@ namespace BlockBattle.Network
         /// </summary>
         private void RebuildLocalMap()
         {
+            BlockBattle.Debugging.DebugLogManager.Workspace($"RebuildLocalMap: Starting rebuild, NetworkList count={_workspaceAssignments.Count}");
             _clientToWorkspaceMap.Clear();
 
             foreach (var assignment in _workspaceAssignments)
             {
                 _clientToWorkspaceMap[assignment.ClientId] = assignment.WorkspaceIndex;
+                BlockBattle.Debugging.DebugLogManager.Workspace($"RebuildLocalMap: Client {assignment.ClientId} -> Workspace {assignment.WorkspaceIndex}");
 
                 // Update local workspace references
                 if (assignment.WorkspaceIndex < _workspaces.Length && _workspaces[assignment.WorkspaceIndex] != null)
@@ -500,6 +502,8 @@ namespace BlockBattle.Network
                     _workspaces[assignment.WorkspaceIndex].AssignToPlayer(assignment.ClientId);
                 }
             }
+            
+            BlockBattle.Debugging.DebugLogManager.Workspace($"RebuildLocalMap: Complete, map now has {_clientToWorkspaceMap.Count} entries");
         }
 
         #endregion
@@ -580,6 +584,12 @@ namespace BlockBattle.Network
             {
                 return index;
             }
+            
+            // Log for debugging - this should not happen if the client is properly connected
+            BlockBattle.Debugging.DebugLogManager.Workspace(
+                $"GetWorkspaceIndexForClient: Client {clientId} not found in map. " +
+                $"Map has {_clientToWorkspaceMap.Count} entries, NetworkList has {_workspaceAssignments.Count} entries");
+            
             return -1;
         }
 

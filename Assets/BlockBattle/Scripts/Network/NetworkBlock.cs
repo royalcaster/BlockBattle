@@ -44,6 +44,26 @@ namespace BlockBattle.Network
             NetworkVariableWritePermission.Owner
         );
 
+        /// <summary>
+        /// The block color (synced across network).
+        /// Using int to represent BlockColor enum for network serialization.
+        /// </summary>
+        private NetworkVariable<int> _blockColorIndex = new NetworkVariable<int>(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner
+        );
+
+        /// <summary>
+        /// Whether the block has been ejected from the shelf (physics enabled).
+        /// This is synced across the network to ensure all clients enable physics together.
+        /// </summary>
+        private NetworkVariable<bool> _isEjected = new NetworkVariable<bool>(
+            false,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner
+        );
+
         #endregion
 
         #region Serialized Fields
@@ -93,6 +113,11 @@ namespace BlockBattle.Network
         /// Gets whether this block is currently being held by any player.
         /// </summary>
         public bool IsHeld => _holdingPlayerId.Value != 0;
+
+        /// <summary>
+        /// Gets the block color.
+        /// </summary>
+        public BlockColor BlockColor => (BlockColor)_blockColorIndex.Value;
 
         #endregion
 
@@ -148,8 +173,66 @@ namespace BlockBattle.Network
             // Subscribe to network variable changes
             _isAtRest.OnValueChanged += OnAtRestChanged;
             _holdingPlayerId.OnValueChanged += OnHoldingPlayerChanged;
+            _blockColorIndex.OnValueChanged += OnBlockColorChanged;
+            _isEjected.OnValueChanged += OnEjectedChanged;
+            _workspaceIndex.OnValueChanged += OnWorkspaceIndexChanged;
 
-            Debug.Log($"NetworkBlock: Spawned {gameObject.name} with NetworkObjectId {NetworkObjectId}, Owner: {OwnerClientId}");
+            // Non-owners should always apply the color from the NetworkVariable
+            // (it may have been set by the owner before this client spawned the object)
+            if (!IsOwner)
+            {
+                // Delay color application slightly to ensure NetworkVariable is synced
+                StartCoroutine(ApplyColorAfterSync());
+                
+                // Apply ejection state for late-joining clients
+                StartCoroutine(ApplyEjectionStateAfterSync());
+                
+                // Log workspace index when synced
+                StartCoroutine(LogWorkspaceAfterSync());
+            }
+
+            Debug.Log($"NetworkBlock: Spawned {gameObject.name} with NetworkObjectId {NetworkObjectId}, Owner: {OwnerClientId}, Color: {(BlockColor)_blockColorIndex.Value}, WorkspaceIndex: {_workspaceIndex.Value}, IsEjected: {_isEjected.Value}");
+        }
+
+        /// <summary>
+        /// Applies color after a short delay to ensure NetworkVariable sync on non-owners.
+        /// </summary>
+        private System.Collections.IEnumerator ApplyColorAfterSync()
+        {
+            Debug.Log($"NetworkBlock: ApplyColorAfterSync starting for {gameObject.name}, current colorIndex={_blockColorIndex.Value}");
+            
+            // Wait for network sync - try multiple times with increasing delays
+            // Owner's color set might be deferred, so we need to wait longer
+            int attempts = 0;
+            int maxAttempts = 40; // Wait up to 40 frames for owner to set color
+            
+            while (attempts < maxAttempts)
+            {
+                // Wait a frame
+                yield return null;
+                attempts++;
+                
+                int colorIndex = _blockColorIndex.Value;
+                
+                // If color is set to something other than 0, apply immediately
+                if (colorIndex != 0)
+                {
+                    ApplyBlockColor((BlockColor)colorIndex);
+                    Debug.Log($"NetworkBlock: Applied synced color {(BlockColor)colorIndex} to {gameObject.name} (attempt {attempts})");
+                    yield break;
+                }
+                
+                // Log progress every 10 attempts
+                if (attempts % 10 == 0)
+                {
+                    Debug.Log($"NetworkBlock: Waiting for color sync on {gameObject.name}, attempt {attempts}, colorIndex still {colorIndex}");
+                }
+            }
+            
+            // Final fallback after max attempts - apply whatever value we have (might be Natural/0)
+            int finalColor = _blockColorIndex.Value;
+            ApplyBlockColor((BlockColor)finalColor);
+            Debug.Log($"NetworkBlock: Applied final color {(BlockColor)finalColor} to {gameObject.name} after {maxAttempts} attempts");
         }
 
         public override void OnNetworkDespawn()
@@ -157,6 +240,9 @@ namespace BlockBattle.Network
             // Unsubscribe from network variable changes
             _isAtRest.OnValueChanged -= OnAtRestChanged;
             _holdingPlayerId.OnValueChanged -= OnHoldingPlayerChanged;
+            _blockColorIndex.OnValueChanged -= OnBlockColorChanged;
+            _isEjected.OnValueChanged -= OnEjectedChanged;
+            _workspaceIndex.OnValueChanged -= OnWorkspaceIndexChanged;
 
             base.OnNetworkDespawn();
         }
@@ -261,18 +347,42 @@ namespace BlockBattle.Network
         {
             if (!IsSpawned) return;
 
+            ulong localClientId = NetworkManager.Singleton.LocalClientId;
+            Debug.Log($"NetworkBlock: {gameObject.name} OnGrabbed - IsOwner={IsOwner}, LocalClient={localClientId}, WorkspaceIndex={_workspaceIndex.Value}");
+
+            // Check if this player is allowed to grab this block (must be from their workspace)
+            if (!CanPlayerGrabBlock(localClientId))
+            {
+                Debug.Log($"NetworkBlock: {gameObject.name} - Player {localClientId} cannot grab block from workspace {_workspaceIndex.Value}");
+                // Cancel the grab by forcing deselect
+                if (_grabInteractable != null && args.interactorObject != null)
+                {
+                    // Use interactionManager to force deselect after a frame
+                    StartCoroutine(ForceDeselectAfterFrame(args.interactorObject));
+                }
+                return;
+            }
+
             // Request ownership if we don't have it
             if (!IsOwner)
             {
-                RequestOwnershipServerRpc();
+                // In Distributed Authority mode, use RequestOwnership() directly
+                // In server mode, use ServerRpc
+                if (NetworkManager.Singleton.NetworkConfig.NetworkTopology == NetworkTopologyTypes.DistributedAuthority)
+                {
+                    // DA mode: request ownership directly from the NetworkObject
+                    NetworkObject.ChangeOwnership(localClientId);
+                    Debug.Log($"NetworkBlock: DA mode - directly changing ownership to {localClientId}");
+                }
+                else
+                {
+                    // Server mode: use RPC
+                    RequestOwnershipServerRpc();
+                }
             }
 
-            // Update holding player - only if we're the owner
-            if (IsOwner)
-            {
-                _holdingPlayerId.Value = NetworkManager.Singleton.LocalClientId;
-                _isAtRest.Value = false;
-            }
+            // Update holding player - defer if we just requested ownership
+            StartCoroutine(SetHoldingPlayerAfterOwnership());
 
             // Wake up the rigidbody
             if (_rigidbody != null)
@@ -282,7 +392,52 @@ namespace BlockBattle.Network
 
             _sleepTimer = 0f;
 
-            Debug.Log($"NetworkBlock: {gameObject.name} grabbed by player {NetworkManager.Singleton.LocalClientId}");
+            Debug.Log($"NetworkBlock: {gameObject.name} grabbed by player {localClientId}");
+        }
+
+        /// <summary>
+        /// Checks if a player is allowed to grab this block.
+        /// Players can only grab blocks from their own workspace.
+        /// </summary>
+        private bool CanPlayerGrabBlock(ulong clientId)
+        {
+            // Allow all players to grab any block - simplified for gameplay
+            // No workspace restrictions needed
+            return true;
+        }
+
+        /// <summary>
+        /// Forces deselection of the block after a frame (for unauthorized grabs).
+        /// </summary>
+        private System.Collections.IEnumerator ForceDeselectAfterFrame(UnityEngine.XR.Interaction.Toolkit.Interactors.IXRSelectInteractor interactor)
+        {
+            yield return null;
+            
+            if (_grabInteractable != null && _grabInteractable.isSelected)
+            {
+                // Force the interactor to drop this object
+                var interactionManager = _grabInteractable.interactionManager;
+                if (interactionManager != null)
+                {
+                    interactionManager.SelectExit(interactor, _grabInteractable);
+                    Debug.Log($"NetworkBlock: Forced deselect of {gameObject.name}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Waits briefly for ownership transfer then sets holding player.
+        /// </summary>
+        private System.Collections.IEnumerator SetHoldingPlayerAfterOwnership()
+        {
+            // Wait a frame for ownership to transfer
+            yield return null;
+            
+            if (IsOwner)
+            {
+                _holdingPlayerId.Value = NetworkManager.Singleton.LocalClientId;
+                _isAtRest.Value = false;
+            }
         }
 
         /// <summary>
@@ -307,6 +462,125 @@ namespace BlockBattle.Network
         private void OnHoldingPlayerChanged(ulong previousValue, ulong newValue)
         {
             // Can be used for visual feedback (e.g., highlight blocks being held by others)
+        }
+
+        /// <summary>
+        /// Callback when block color changes on the network.
+        /// </summary>
+        private void OnBlockColorChanged(int previousValue, int newValue)
+        {
+            Debug.Log($"NetworkBlock: OnBlockColorChanged {gameObject.name} from {(BlockColor)previousValue} to {(BlockColor)newValue}");
+            ApplyBlockColor((BlockColor)newValue);
+        }
+
+        /// <summary>
+        /// Callback when ejected state changes on the network.
+        /// </summary>
+        private void OnEjectedChanged(bool previousValue, bool newValue)
+        {
+            Debug.Log($"NetworkBlock: OnEjectedChanged {gameObject.name} from {previousValue} to {newValue}");
+            if (newValue && !previousValue)
+            {
+                // Block was just ejected - enable physics
+                EnablePhysicsLocally();
+            }
+        }
+
+        /// <summary>
+        /// Callback when workspace index changes on the network.
+        /// </summary>
+        private void OnWorkspaceIndexChanged(int previousValue, int newValue)
+        {
+            Debug.Log($"NetworkBlock: OnWorkspaceIndexChanged {gameObject.name} from {previousValue} to {newValue}");
+        }
+
+        /// <summary>
+        /// Logs workspace index after sync for debugging late-joining clients.
+        /// </summary>
+        private System.Collections.IEnumerator LogWorkspaceAfterSync()
+        {
+            // Wait a bit longer for workspace to sync (owner needs time to set it after spawn)
+            yield return new WaitForSeconds(0.5f);
+            
+            if (_workspaceIndex.Value >= 0)
+            {
+                Debug.Log($"NetworkBlock: Workspace synced for {gameObject.name}: {_workspaceIndex.Value}");
+            }
+            else
+            {
+                // Try again
+                for (int attempt = 0; attempt < 5 && _workspaceIndex.Value < 0; attempt++)
+                {
+                    yield return new WaitForSeconds(0.2f);
+                }
+                Debug.Log($"NetworkBlock: Final workspace for {gameObject.name}: {_workspaceIndex.Value}");
+            }
+        }
+
+        /// <summary>
+        /// Applies ejection state after sync for non-owners.
+        /// </summary>
+        private System.Collections.IEnumerator ApplyEjectionStateAfterSync()
+        {
+            // Wait a couple frames for NetworkVariable to sync
+            yield return null;
+            yield return null;
+            
+            if (_isEjected.Value)
+            {
+                Debug.Log($"NetworkBlock: Applying synced ejection state to {gameObject.name}");
+                EnablePhysicsLocally();
+            }
+        }
+
+        /// <summary>
+        /// Enables physics on this block locally.
+        /// </summary>
+        private void EnablePhysicsLocally()
+        {
+            if (_rigidbody != null)
+            {
+                _rigidbody.isKinematic = false;
+                _rigidbody.WakeUp();
+                Debug.Log($"NetworkBlock: Physics enabled on {gameObject.name}");
+            }
+        }
+
+        /// <summary>
+        /// Applies the specified color material to this block.
+        /// </summary>
+        private void ApplyBlockColor(BlockColor blockColor)
+        {
+            // Load the colored material from Resources
+            string materialName = BlockColorUtility.GetMaterialName(blockColor);
+            Material coloredMaterial = Resources.Load<Material>(materialName);
+
+            // If not in Resources, try loading from asset path (editor only)
+#if UNITY_EDITOR
+            if (coloredMaterial == null)
+            {
+                string materialPath = $"Assets/BlockBattle/Materials/{materialName}.mat";
+                coloredMaterial = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            }
+#endif
+
+            if (coloredMaterial == null)
+            {
+                Debug.LogWarning($"NetworkBlock: Could not load material {materialName} from Resources or Assets");
+                return;
+            }
+
+            // Find all MeshRenderers in the block
+            MeshRenderer[] renderers = GetComponentsInChildren<MeshRenderer>(true);
+            foreach (MeshRenderer renderer in renderers)
+            {
+                if (renderer != null)
+                {
+                    renderer.material = coloredMaterial;
+                }
+            }
+
+            Debug.Log($"NetworkBlock: Applied color {blockColor} to {gameObject.name}");
         }
 
         #endregion
@@ -334,20 +608,190 @@ namespace BlockBattle.Network
         }
 
         /// <summary>
-        /// Sets the workspace index for this block (server only).
+        /// Sets the workspace index for this block (owner only).
         /// </summary>
         /// <param name="workspaceIndex">The workspace index (0 or 1)</param>
         public void SetWorkspaceIndex(int workspaceIndex)
         {
-            if (IsServer)
+            // In DA mode, owner can write. In server mode, server can write.
+            // After Spawn(), we should have ownership, but defer if needed
+            if (IsSpawned && (IsOwner || IsServer))
             {
                 _workspaceIndex.Value = workspaceIndex;
+                Debug.Log($"NetworkBlock: Set workspace index to {workspaceIndex} for {gameObject.name}");
+            }
+            else
+            {
+                // Defer until ownership is established
+                StartCoroutine(SetWorkspaceIndexDeferred(workspaceIndex));
+            }
+        }
+
+        private System.Collections.IEnumerator SetWorkspaceIndexDeferred(int workspaceIndex)
+        {
+            // Wait for spawn and ownership
+            int attempts = 0;
+            while ((!IsSpawned || !IsOwner) && attempts < 30)
+            {
+                yield return null;
+                attempts++;
+            }
+            
+            if (IsOwner)
+            {
+                _workspaceIndex.Value = workspaceIndex;
+                Debug.Log($"NetworkBlock: Deferred set workspace index to {workspaceIndex} for {gameObject.name}");
+            }
+            else
+            {
+                Debug.LogWarning($"NetworkBlock: Failed to set workspace index - not owner after {attempts} frames");
+            }
+        }
+
+        /// <summary>
+        /// Sets the block color (owner only). This will sync to all clients.
+        /// </summary>
+        /// <param name="color">The block color to set</param>
+        public void SetBlockColor(BlockColor color)
+        {
+            ulong localId = NetworkManager.Singleton?.LocalClientId ?? 0;
+            Debug.Log($"NetworkBlock: SetBlockColor called for {gameObject.name} with color {color}. IsSpawned={IsSpawned}, IsOwner={IsOwner}, OwnerClientId={OwnerClientId}, LocalClientId={localId}");
+            
+            // Apply locally immediately for visual feedback
+            ApplyBlockColor(color);
+            
+            // In DA mode, the spawning client becomes owner
+            // Use direct OwnerClientId comparison for immediate check, as IsOwner might not update immediately
+            bool isOwnerDirect = IsSpawned && NetworkManager.Singleton != null && 
+                                 OwnerClientId == NetworkManager.Singleton.LocalClientId;
+            
+            if (IsSpawned && (IsOwner || isOwnerDirect))
+            {
+                _blockColorIndex.Value = (int)color;
+                Debug.Log($"NetworkBlock: Set color immediately to {color} ({(int)color}) for {gameObject.name}");
+            }
+            else
+            {
+                // Defer to ensure ownership is established
+                Debug.Log($"NetworkBlock: Deferring color set for {gameObject.name} - IsSpawned={IsSpawned}, IsOwner={IsOwner}, isOwnerDirect={isOwnerDirect}");
+                StartCoroutine(SetBlockColorDeferred(color));
+            }
+        }
+
+        private System.Collections.IEnumerator SetBlockColorDeferred(BlockColor color)
+        {
+            Debug.Log($"NetworkBlock: SetBlockColorDeferred starting for {gameObject.name}, color={color}");
+            
+            // Wait just 1 frame first - in most cases ownership is established by then
+            yield return null;
+            
+            // Use direct OwnerClientId comparison as IsOwner might not update immediately
+            bool CheckOwnership()
+            {
+                return IsSpawned && NetworkManager.Singleton != null && 
+                       (IsOwner || OwnerClientId == NetworkManager.Singleton.LocalClientId);
+            }
+            
+            // Check if we're now owner
+            if (CheckOwnership())
+            {
+                _blockColorIndex.Value = (int)color;
+                Debug.Log($"NetworkBlock: Set color to {color} for {gameObject.name} (deferred 1 frame, index={_blockColorIndex.Value})");
+                yield break;
+            }
+            
+            // Wait a bit longer if needed
+            int attempts = 0;
+            while (!CheckOwnership() && attempts < 30)
+            {
+                if (attempts % 5 == 0)
+                {
+                    Debug.Log($"NetworkBlock: SetBlockColorDeferred waiting... attempt {attempts}, IsSpawned={IsSpawned}, IsOwner={IsOwner}, OwnerClientId={OwnerClientId}, LocalClientId={NetworkManager.Singleton?.LocalClientId}");
+                }
+                yield return null;
+                attempts++;
+            }
+            
+            if (CheckOwnership())
+            {
+                _blockColorIndex.Value = (int)color;
+                Debug.Log($"NetworkBlock: Set color to {color} for {gameObject.name} (deferred after {attempts+1} frames, index={_blockColorIndex.Value})");
+            }
+            else
+            {
+                Debug.LogWarning($"NetworkBlock: Failed to set color {color} for {gameObject.name} - IsOwner={IsOwner}, IsSpawned={IsSpawned} after {attempts+1} frames. OwnerClientId={OwnerClientId}, LocalClientId={NetworkManager.Singleton?.LocalClientId}");
             }
         }
 
         #endregion
 
         #region Public API
+
+        /// <summary>
+        /// Ejects this block from the shelf, enabling physics and applying force.
+        /// This method should only be called by the owner (session owner in DA mode).
+        /// The ejection state is synced to all clients via NetworkVariable.
+        /// </summary>
+        /// <param name="force">The force to apply when ejecting</param>
+        /// <param name="torque">The torque to apply for tumbling</param>
+        public void EjectBlock(Vector3 force, Vector3 torque)
+        {
+            if (!IsSpawned)
+            {
+                Debug.LogWarning($"NetworkBlock: Cannot eject {gameObject.name} - not spawned yet");
+                return;
+            }
+
+            // Enable physics locally
+            if (_rigidbody != null)
+            {
+                _rigidbody.isKinematic = false;
+                _rigidbody.WakeUp();
+                _rigidbody.linearVelocity = force;
+                _rigidbody.AddTorque(torque, ForceMode.Impulse);
+            }
+
+            // Set ejection state - will sync to all clients
+            if (IsOwner)
+            {
+                _isEjected.Value = true;
+                Debug.Log($"NetworkBlock: Ejected {gameObject.name} with force {force}");
+            }
+            else
+            {
+                // If not owner yet, defer
+                StartCoroutine(SetEjectedAfterOwnership(force, torque));
+            }
+        }
+
+        private System.Collections.IEnumerator SetEjectedAfterOwnership(Vector3 force, Vector3 torque)
+        {
+            int attempts = 0;
+            while (!IsOwner && attempts < 30)
+            {
+                yield return null;
+                attempts++;
+            }
+
+            if (IsOwner)
+            {
+                _isEjected.Value = true;
+                
+                // Re-apply force in case it was missed
+                if (_rigidbody != null)
+                {
+                    _rigidbody.linearVelocity = force;
+                    _rigidbody.AddTorque(torque, ForceMode.Impulse);
+                }
+                
+                Debug.Log($"NetworkBlock: Deferred ejection of {gameObject.name}");
+            }
+        }
+
+        /// <summary>
+        /// Gets whether this block has been ejected from the shelf.
+        /// </summary>
+        public bool IsEjected => _isEjected.Value;
 
         /// <summary>
         /// Forces the block to sync its current position to all clients.

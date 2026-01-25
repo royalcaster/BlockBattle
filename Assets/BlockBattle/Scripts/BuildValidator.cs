@@ -215,6 +215,9 @@ namespace BlockBattle
         {
             BuildValidationResult result = new BuildValidationResult();
 
+            // Re-check multiplayer mode (in case we started before network connected)
+            CheckMultiplayerMode();
+
             // Validate configuration
             if (m_ReferenceConfiguration == null)
             {
@@ -337,11 +340,24 @@ namespace BlockBattle
         /// </summary>
         private void ReportToNetworkIfNeeded(BuildValidationResult result)
         {
-            if (!_isMultiplayerMode || !m_AutoReportToNetwork) return;
-            if (NetworkedLevelManager.Instance == null) return;
+            Debug.Log($"BuildValidator[W{m_WorkspaceIndex}]: ReportToNetworkIfNeeded called. Accuracy={result.AccuracyPercentage:F1}%, Multiplayer={_isMultiplayerMode}, AutoReport={m_AutoReportToNetwork}");
+            
+            if (!_isMultiplayerMode || !m_AutoReportToNetwork)
+            {
+                Debug.Log($"BuildValidator[W{m_WorkspaceIndex}]: Skipping report - Multiplayer={_isMultiplayerMode}, AutoReport={m_AutoReportToNetwork}");
+                return;
+            }
+            
+            if (NetworkedLevelManager.Instance == null)
+            {
+                Debug.LogWarning($"BuildValidator[W{m_WorkspaceIndex}]: NetworkedLevelManager.Instance is null!");
+                return;
+            }
 
             // Only report significant changes in accuracy (to avoid spamming)
             bool accuracyChanged = Mathf.Abs(result.AccuracyPercentage - _lastReportedAccuracy) > 1f;
+            
+            Debug.Log($"BuildValidator[W{m_WorkspaceIndex}]: AccuracyChanged={accuracyChanged}, LastReported={_lastReportedAccuracy:F1}%, HasReportedCompletion={_hasReportedCompletion}");
             
             // Report if accuracy reached 100% or changed significantly
             if (result.AccuracyPercentage >= 100f || accuracyChanged)
@@ -351,12 +367,17 @@ namespace BlockBattle
                 // Only call ServerRpc if we haven't already reported 100% completion
                 if (!_hasReportedCompletion || result.AccuracyPercentage >= 100f)
                 {
-                    NetworkedLevelManager.Instance.ReportBuildCompleteServerRpc(result.AccuracyPercentage);
+                    Debug.Log($"BuildValidator[W{m_WorkspaceIndex}]: Reporting accuracy {result.AccuracyPercentage:F1}% to NetworkedLevelManager");
+                    
+                    // In DA mode, ServerRpc doesn't work reliably - use direct call instead
+                    // The NetworkedLevelManager handles the logic internally
+                    NetworkedLevelManager.Instance.HandleBuildCompletion(m_WorkspaceIndex, result.AccuracyPercentage);
+                    Debug.Log($"BuildValidator[W{m_WorkspaceIndex}]: HandleBuildCompletion call completed");
 
                     if (result.AccuracyPercentage >= 100f)
                     {
                         _hasReportedCompletion = true;
-                        Debug.Log($"BuildValidator: Reported build completion to network (accuracy: {result.AccuracyPercentage:F1}%)");
+                        Debug.Log($"BuildValidator[W{m_WorkspaceIndex}]: Build COMPLETE! Reported to network.");
                     }
                 }
             }
@@ -364,6 +385,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Collects all placed blocks within the build zone.
+        /// In multiplayer mode, only collects blocks that belong to this workspace.
         /// </summary>
         private List<GameObject> CollectPlacedBlocks()
         {
@@ -378,6 +400,20 @@ namespace BlockBattle
                 GameObject block = interactable.gameObject;
                 if (IsReferenceStructureBlock(block)) continue;
                 if (!IsBlockInValidationArea(block)) continue;
+
+                // In multiplayer mode, only count blocks belonging to this workspace
+                if (_isMultiplayerMode)
+                {
+                    NetworkBlock networkBlock = block.GetComponent<NetworkBlock>();
+                    if (networkBlock != null)
+                    {
+                        // Skip blocks from other workspaces
+                        if (networkBlock.WorkspaceIndex != m_WorkspaceIndex && networkBlock.WorkspaceIndex >= 0)
+                        {
+                            continue;
+                        }
+                    }
+                }
 
                 placedBlocks.Add(block);
             }

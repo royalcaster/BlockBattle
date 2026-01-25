@@ -75,11 +75,11 @@ namespace BlockBattle
         [SerializeField, Tooltip("Right door HingeJoint reference")]
         private HingeJoint m_RightDoor;
 
-        [SerializeField, Range(0f, 120f), Tooltip("Door angle at which blocks are ejected")]
-        private float m_TriggerAngle = 70f;
+        [SerializeField, Range(0f, 120f), Tooltip("Door angle at which blocks are ejected. Lower values trigger earlier (recommended: 30-50 degrees)")]
+        private float m_TriggerAngle = 40f;
 
         [SerializeField, Range(0f, 120f), Tooltip("Door angle below which the system resets (must be less than trigger angle)")]
-        private float m_ResetAngle = 60f;
+        private float m_ResetAngle = 30f;
 
         [SerializeField, Tooltip("Impulse force applied to doors when blocks are ejected")]
         private float m_DoorKickForce = 30f;
@@ -92,14 +92,14 @@ namespace BlockBattle
         [SerializeField, Tooltip("Transform whose forward direction defines the base ejection direction. If null, uses this transform's forward.")]
         private Transform m_EjectionDirection;
 
-        [SerializeField, Tooltip("Base force applied to eject blocks (lower values = less chance of tunneling through floor)")]
-        private float m_EjectionForce = 8f;
+        [SerializeField, Tooltip("Base force applied to eject blocks. Recommended: 3-5 for gentle drop, 8-12 for stronger push")]
+        private float m_EjectionForce = 4f;
 
-        [SerializeField, Range(0f, 1f), Tooltip("How much blocks spread when ejected (0 = straight line, 1 = wide spread)")]
-        private float m_SpreadAmount = 0.3f;
+        [SerializeField, Range(0f, 1f), Tooltip("How much blocks spread when ejected (0 = straight line, 1 = wide spread). Lower values help blocks not get stuck.")]
+        private float m_SpreadAmount = 0.15f;
 
-        [SerializeField, Tooltip("Rotational force applied to blocks for realistic tumbling")]
-        private float m_TumbleForce = 5f;
+        [SerializeField, Tooltip("Rotational force applied to blocks for realistic tumbling. Lower values prevent blocks from bouncing back.")]
+        private float m_TumbleForce = 2f;
 
         [SerializeField, Tooltip("Use continuous collision detection to prevent blocks from passing through floor")]
         private bool m_UseContinuousCollision = true;
@@ -133,6 +133,12 @@ namespace BlockBattle
 
         [SerializeField, Tooltip("Whether to use network spawning when in multiplayer mode")]
         private bool m_UseNetworkSpawning = true;
+
+        [SerializeField, Tooltip("In multiplayer, auto-eject blocks after spawning (bypasses door trigger)")]
+        private bool m_AutoEjectInMultiplayer = true;
+
+        [SerializeField, Tooltip("Delay before auto-ejecting blocks in multiplayer (seconds)")]
+        private float m_AutoEjectDelay = 1.5f;
 
         #endregion
 
@@ -310,19 +316,29 @@ namespace BlockBattle
         /// </summary>
         public void SpawnBlocks()
         {
+            Debug.Log($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: SpawnBlocks() ENTERED ###");
+            
+            // Re-check multiplayer mode
+            CheckMultiplayerMode();
+            
+            bool isSessionOwner = NetworkManager.Singleton != null && 
+                NetworkManager.Singleton.LocalClientId == NetworkManager.Singleton.CurrentSessionOwner;
+            
+            Debug.Log($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: Multiplayer={_isMultiplayerMode}, IsSessionOwner={isSessionOwner}, NetworkManager={NetworkManager.Singleton != null} ###");
+            
             if (m_SpawnConfiguration == null)
             {
-                Debug.LogWarning("ShelfBlockSpawner: No spawn configuration assigned!");
+                Debug.LogError($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: SpawnConfiguration is NULL! Cannot spawn! ###");
                 return;
             }
 
             if (m_SpawnConfiguration.SpawnEntries == null || m_SpawnConfiguration.SpawnEntries.Count == 0)
             {
-                Debug.LogWarning("ShelfBlockSpawner: Spawn configuration has no entries!");
+                Debug.LogError($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: SpawnConfiguration has NO ENTRIES! Cannot spawn! ###");
                 return;
             }
 
-            Debug.Log($"ShelfBlockSpawner: Spawning {m_SpawnConfiguration.SpawnEntries.Count} blocks from configuration '{m_SpawnConfiguration.ConfigurationName}'");
+            Debug.Log($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: Will spawn {m_SpawnConfiguration.SpawnEntries.Count} blocks from '{m_SpawnConfiguration.ConfigurationName}' ###");
 
             // Clear any previously spawned blocks
             ClearSpawnedBlocks();
@@ -352,7 +368,7 @@ namespace BlockBattle
                 }
             }
 
-            Debug.Log($"ShelfBlockSpawner: Successfully spawned {_spawnedBlockObjects.Count} blocks inside shelf. StoredBlocks count: {_storedBlocks.Count}");
+            Debug.Log($"ShelfBlockSpawner[W{m_WorkspaceIndex}]: Successfully spawned {_spawnedBlockObjects.Count} blocks inside shelf. StoredBlocks count: {_storedBlocks.Count}, NetworkObjects: {_spawnedNetworkObjects.Count}");
             
             // Reset trigger state so doors can trigger ejection
             _hasTriggered = false;
@@ -361,6 +377,30 @@ namespace BlockBattle
             _gameStarted = true;
             
             OnBlocksSpawned?.Invoke(_spawnedBlockObjects.Count);
+
+            // In multiplayer, auto-eject blocks after a delay to ensure sync
+            // This bypasses the door trigger which is hard to sync across clients
+            if (_isMultiplayerMode && m_AutoEjectInMultiplayer && IsSessionOwner)
+            {
+                Debug.Log($"ShelfBlockSpawner: Scheduling auto-eject in {m_AutoEjectDelay}s for workspace {m_WorkspaceIndex}");
+                StartCoroutine(AutoEjectAfterDelay());
+            }
+        }
+
+        /// <summary>
+        /// Auto-ejects blocks after a delay in multiplayer mode.
+        /// This ensures blocks are ejected reliably without depending on door physics sync.
+        /// </summary>
+        private System.Collections.IEnumerator AutoEjectAfterDelay()
+        {
+            yield return new WaitForSeconds(m_AutoEjectDelay);
+            
+            if (!_hasTriggered)
+            {
+                Debug.Log($"ShelfBlockSpawner: Auto-ejecting blocks for workspace {m_WorkspaceIndex}");
+                EjectBlocks();
+                _hasTriggered = true;
+            }
         }
         
         /// <summary>
@@ -385,16 +425,23 @@ namespace BlockBattle
         /// </summary>
         public void ClearSpawnedBlocks()
         {
-            // In multiplayer mode on server, despawn network objects
-            if (_isMultiplayerMode && NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
+            Debug.Log($"ShelfBlockSpawner: ClearSpawnedBlocks called. NetworkObjects: {_spawnedNetworkObjects.Count}, Blocks: {_spawnedBlockObjects.Count}");
+            
+            // In multiplayer mode, despawn network objects if we're owner/session owner
+            if (_isMultiplayerMode && NetworkManager.Singleton != null)
             {
-                foreach (NetworkObject networkObj in _spawnedNetworkObjects)
+                bool isSessionOwner = NetworkManager.Singleton.LocalClientId == NetworkManager.Singleton.CurrentSessionOwner;
+                if (isSessionOwner)
                 {
-                    if (networkObj != null && networkObj.IsSpawned)
+                    foreach (NetworkObject networkObj in _spawnedNetworkObjects)
                     {
-                        networkObj.Despawn(true);
+                        if (networkObj != null && networkObj.IsSpawned)
+                        {
+                            networkObj.Despawn(true);
+                        }
                     }
                 }
+                // Always clear the list in multiplayer (blocks might be despawned elsewhere)
                 _spawnedNetworkObjects.Clear();
             }
 
@@ -403,15 +450,17 @@ namespace BlockBattle
             {
                 if (block != null)
                 {
-                    // Only destroy if not a networked object (already handled above)
+                    // Only destroy if not a networked object (network objects are despawned above or elsewhere)
                     if (!_isMultiplayerMode || block.GetComponent<NetworkObject>() == null)
-                {
-                    Destroy(block);
+                    {
+                        Destroy(block);
                     }
                 }
             }
             _spawnedBlockObjects.Clear();
             _storedBlocks.Clear();
+            
+            Debug.Log($"ShelfBlockSpawner: ClearSpawnedBlocks complete. Lists cleared.");
         }
 
         /// <summary>
@@ -494,6 +543,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Monitors door angles and triggers ejection when threshold is reached.
+        /// In multiplayer, only the session owner can trigger ejection.
         /// </summary>
         private void MonitorDoors()
         {
@@ -511,8 +561,28 @@ namespace BlockBattle
             // Trigger ejection when either door opens past trigger angle
             if ((angleL >= m_TriggerAngle || angleR >= m_TriggerAngle) && !_hasTriggered)
             {
-                Debug.Log($"ShelfBlockSpawner: Door trigger! Left={angleL:F1}°, Right={angleR:F1}°, Threshold={m_TriggerAngle}°, StoredBlocks={_storedBlocks.Count}");
-                EjectBlocks();
+                Debug.Log($"ShelfBlockSpawner: Door trigger! Left={angleL:F1}°, Right={angleR:F1}°, Threshold={m_TriggerAngle}°");
+                
+                // In multiplayer, only session owner can eject network blocks
+                // Non-owners just mark as triggered so they don't spam the log
+                if (_isMultiplayerMode)
+                {
+                    if (IsSessionOwner)
+                    {
+                        Debug.Log($"ShelfBlockSpawner: Session owner ejecting blocks for workspace {m_WorkspaceIndex}");
+                        EjectBlocks();
+                    }
+                    else
+                    {
+                        Debug.Log($"ShelfBlockSpawner: Non-owner door opened - blocks should be ejected by session owner");
+                    }
+                }
+                else
+                {
+                    // Single player - eject normally
+                    EjectBlocks();
+                }
+                
                 _hasTriggered = true;
             }
 
@@ -531,10 +601,32 @@ namespace BlockBattle
 
         /// <summary>
         /// Ejects all stored blocks with randomized physics.
+        /// In multiplayer, uses NetworkBlock.EjectBlock() to sync across clients.
         /// </summary>
         private void EjectBlocks()
         {
-            Debug.Log($"ShelfBlockSpawner: Ejecting {_storedBlocks.Count} blocks!");
+            // In multiplayer, also eject any spawned network objects that we own
+            // (this handles the case where _storedBlocks is empty on non-owner clients)
+            if (_isMultiplayerMode)
+            {
+                EjectNetworkBlocks();
+            }
+            else
+            {
+                EjectLocalBlocks();
+            }
+
+            // Kick doors open further
+            KickDoor(m_LeftDoor);
+            KickDoor(m_RightDoor);
+        }
+
+        /// <summary>
+        /// Ejects blocks in single-player mode using local rigidbody control.
+        /// </summary>
+        private void EjectLocalBlocks()
+        {
+            Debug.Log($"ShelfBlockSpawner: Ejecting {_storedBlocks.Count} local blocks!");
 
             int ejectedCount = 0;
 
@@ -543,49 +635,115 @@ namespace BlockBattle
                 Rigidbody rb = _storedBlocks[i];
                 if (rb != null)
                 {
-                    // Get base ejection direction
-                    Vector3 baseDir = m_EjectionDirection != null 
-                        ? m_EjectionDirection.forward 
-                        : transform.forward;
-
-                    // Add random spread
-                    float randomX = Random.Range(-m_SpreadAmount, m_SpreadAmount);
-                    float randomY = Random.Range(-m_SpreadAmount, m_SpreadAmount) + 0.1f; // Slight upward bias
-                    float randomZ = Random.Range(-m_SpreadAmount, m_SpreadAmount);
-                    Vector3 randomDir = (baseDir + new Vector3(randomX, randomY, randomZ)).normalized;
-
-                    // Randomize force (80%-120% of base)
-                    float randomPower = m_EjectionForce * Random.Range(0.8f, 1.2f);
-
-                    // Enable physics and apply forces
-                    rb.WakeUp();
-                    rb.isKinematic = false;
-                    
-                    // Use continuous collision detection to prevent blocks from
-                    // tunneling through the floor at high speeds
-                    if (m_UseContinuousCollision)
-                    {
-                        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
-                    }
-                    
-                    rb.linearVelocity = randomDir * randomPower;
-
-                    // Add tumble rotation
-                    rb.AddTorque(Random.insideUnitSphere * m_TumbleForce, ForceMode.Impulse);
-
+                    EjectRigidbody(rb);
                     ejectedCount++;
                 }
             }
 
-            // Clear stored blocks list - blocks must physically re-enter the shelf
-            // to be counted again (via OnTriggerEnter)
+            // Clear stored blocks list
             _storedBlocks.Clear();
 
-            // Kick doors open further
-            KickDoor(m_LeftDoor);
-            KickDoor(m_RightDoor);
-
             OnBlocksEjected?.Invoke(ejectedCount);
+        }
+
+        /// <summary>
+        /// Ejects blocks in multiplayer mode using NetworkBlock.EjectBlock().
+        /// This syncs the ejection state across all clients.
+        /// </summary>
+        private void EjectNetworkBlocks()
+        {
+            Debug.Log($"ShelfBlockSpawner: Ejecting network blocks! NetworkObjects: {_spawnedNetworkObjects.Count}, StoredBlocks: {_storedBlocks.Count}");
+
+            int ejectedCount = 0;
+
+            // Eject all spawned NetworkObjects (works even if _storedBlocks is empty)
+            foreach (var networkObject in _spawnedNetworkObjects)
+            {
+                if (networkObject == null) continue;
+
+                NetworkBlock networkBlock = networkObject.GetComponent<NetworkBlock>();
+                if (networkBlock == null || networkBlock.IsEjected) continue;
+
+                // Calculate ejection force and torque
+                Vector3 baseDir = m_EjectionDirection != null 
+                    ? m_EjectionDirection.forward 
+                    : transform.forward;
+
+                float randomX = Random.Range(-m_SpreadAmount, m_SpreadAmount);
+                float randomY = Random.Range(-m_SpreadAmount, m_SpreadAmount) + 0.15f; // Upward bias
+                float randomZ = Random.Range(-m_SpreadAmount, m_SpreadAmount);
+                Vector3 randomDir = (baseDir + new Vector3(randomX, randomY, randomZ)).normalized;
+                float randomPower = m_EjectionForce * Random.Range(0.9f, 1.1f);
+
+                Vector3 force = randomDir * randomPower;
+                Vector3 torque = Random.insideUnitSphere * m_TumbleForce;
+
+                // Use NetworkBlock's networked ejection
+                networkBlock.EjectBlock(force, torque);
+
+                // Also set collision detection mode
+                Rigidbody rb = networkObject.GetComponent<Rigidbody>();
+                if (rb != null && m_UseContinuousCollision)
+                {
+                    rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+                }
+
+                ejectedCount++;
+            }
+
+            // Also eject any local stored blocks (fallback)
+            foreach (var rb in _storedBlocks)
+            {
+                if (rb == null) continue;
+                
+                // Skip if already handled as network object
+                NetworkBlock nb = rb.GetComponent<NetworkBlock>();
+                if (nb != null && nb.IsEjected) continue;
+
+                EjectRigidbody(rb);
+                ejectedCount++;
+            }
+
+            _storedBlocks.Clear();
+
+            Debug.Log($"ShelfBlockSpawner: Ejected {ejectedCount} blocks");
+            OnBlocksEjected?.Invoke(ejectedCount);
+        }
+
+        /// <summary>
+        /// Ejects a single rigidbody with randomized force.
+        /// </summary>
+        private void EjectRigidbody(Rigidbody rb)
+        {
+            // Get base ejection direction
+            Vector3 baseDir = m_EjectionDirection != null 
+                ? m_EjectionDirection.forward 
+                : transform.forward;
+
+            // Add random spread
+            float randomX = Random.Range(-m_SpreadAmount, m_SpreadAmount);
+            float randomY = Random.Range(-m_SpreadAmount, m_SpreadAmount) + 0.15f; // Slight upward bias
+            float randomZ = Random.Range(-m_SpreadAmount, m_SpreadAmount);
+            Vector3 randomDir = (baseDir + new Vector3(randomX, randomY, randomZ)).normalized;
+
+            // Randomize force (90%-110% of base for consistency)
+            float randomPower = m_EjectionForce * Random.Range(0.9f, 1.1f);
+
+            // Enable physics and apply forces
+            rb.WakeUp();
+            rb.isKinematic = false;
+            
+            // Use continuous collision detection to prevent blocks from
+            // tunneling through the floor at high speeds
+            if (m_UseContinuousCollision)
+            {
+                rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+            }
+            
+            rb.linearVelocity = randomDir * randomPower;
+
+            // Add tumble rotation
+            rb.AddTorque(Random.insideUnitSphere * m_TumbleForce, ForceMode.Impulse);
         }
 
         /// <summary>
@@ -671,19 +829,30 @@ namespace BlockBattle
         /// <returns>The spawned block GameObject, or null if failed</returns>
         private GameObject SpawnSingleBlock(BlockSpawnEntry entry, Vector3 spawnPosition)
         {
-            // In Distributed Authority mode, each client spawns their own blocks locally.
-            // Blocks on the shelf don't need to be networked - they're local to each player's workspace.
-            // Only when placed in the build zone might they need network sync.
+            // Re-check multiplayer mode at spawn time (Awake happens before network connects)
+            CheckMultiplayerMode();
+            
+            Debug.Log($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: SpawnSingleBlock - Type={entry.BlockType}, Color={entry.BlockColor}, Multiplayer={_isMultiplayerMode}, IsSessionOwner={IsSessionOwner} ###");
             
             if (_isMultiplayerMode)
             {
-                // In DA mode, spawn blocks locally for the local player's workspace
-                // Each player spawns their own blocks - no server/client distinction
-                Debug.Log($"ShelfBlockSpawner: Spawning local block in multiplayer DA mode");
-                return SpawnLocalBlock(entry, spawnPosition);
+                // In Distributed Authority mode, only the session owner spawns networked blocks.
+                // These blocks are then replicated to all clients via NetworkObject.
+                if (IsSessionOwner)
+                {
+                    Debug.Log($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: Session owner SPAWNING networked block ###");
+                    return SpawnNetworkedBlock(entry, spawnPosition);
+                }
+                else
+                {
+                    // Non-session-owner clients don't spawn blocks - they receive them via network
+                    Debug.Log($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: Non-owner SKIPPING spawn (will receive via network) ###");
+                    return null;
+                }
             }
 
-            // Single-player mode: use normal spawning
+            // Single-player mode: use local spawning
+            Debug.Log($"### ShelfBlockSpawner[W{m_WorkspaceIndex}]: Single-player mode - spawning local block ###");
             return SpawnLocalBlock(entry, spawnPosition);
         }
 
@@ -741,13 +910,15 @@ namespace BlockBattle
         }
 
         /// <summary>
-        /// Spawns a networked block (multiplayer mode - server only).
+        /// Spawns a networked block (multiplayer mode - session owner only in DA mode).
         /// </summary>
         private GameObject SpawnNetworkedBlock(BlockSpawnEntry entry, Vector3 spawnPosition)
         {
-            if (!NetworkManager.Singleton.IsServer)
+            // In DA mode, session owner spawns blocks. In server mode, server spawns.
+            bool canSpawn = IsSessionOwner || (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer);
+            if (!canSpawn)
             {
-                Debug.LogError("ShelfBlockSpawner: SpawnNetworkedBlock should only be called on the server!");
+                Debug.LogError("ShelfBlockSpawner: SpawnNetworkedBlock should only be called by session owner or server!");
                 return null;
             }
 
@@ -761,7 +932,8 @@ namespace BlockBattle
             // Check if prefab has NetworkObject
             if (prefab.GetComponent<NetworkObject>() == null)
             {
-                Debug.LogWarning($"ShelfBlockSpawner: Prefab {prefab.name} is missing NetworkObject component! Using local spawn.");
+                Debug.LogWarning($"ShelfBlockSpawner: Prefab {prefab.name} is missing NetworkObject component! Blocks won't sync.");
+                // Still spawn locally so game works, but warn about sync issue
                 return SpawnLocalBlock(entry, spawnPosition);
             }
 
@@ -770,7 +942,7 @@ namespace BlockBattle
 
             if (block != null)
             {
-                block.name = $"Block_{entry.BlockType}_{entry.BlockColor}_Shelf_Net";
+                block.name = $"Block_{entry.BlockType}_{entry.BlockColor}_W{m_WorkspaceIndex}_Net";
 
                 // Apply color material before network spawn
                 ApplyBlockColor(block, entry.BlockColor);
@@ -779,24 +951,27 @@ namespace BlockBattle
                 NetworkObject networkObject = block.GetComponent<NetworkObject>();
                 if (networkObject != null)
                 {
-                    // Spawn with ownership assigned to the workspace owner
-                    ulong ownerClientId = GetWorkspaceOwnerClientId();
-                    networkObject.SpawnWithOwnership(ownerClientId);
+                    // In DA mode, spawning client becomes the owner automatically
+                    // We spawn with our local client ID as owner
+                    networkObject.Spawn();
 
                     // Track the network object
                     _spawnedNetworkObjects.Add(networkObject);
 
-                    // Set workspace index on NetworkBlock if present
+                    // Set workspace index and color on NetworkBlock if present
                     NetworkBlock networkBlock = block.GetComponent<NetworkBlock>();
                     if (networkBlock != null)
                     {
+                        // In DA mode with WritePermission.Owner, owner can set these
                         networkBlock.SetWorkspaceIndex(m_WorkspaceIndex);
+                        // Set the color via NetworkVariable so it syncs to all clients
+                        networkBlock.SetBlockColor(entry.BlockColor);
                     }
 
-                    Debug.Log($"ShelfBlockSpawner: Spawned networked {entry.BlockType} ({entry.BlockColor}) at {spawnPosition}, owner: {ownerClientId}");
+                    Debug.Log($"ShelfBlockSpawner: Spawned networked {entry.BlockType} ({entry.BlockColor}) at {spawnPosition} for workspace {m_WorkspaceIndex}, NetworkId: {networkObject.NetworkObjectId}");
                 }
 
-                // Make block kinematic initially
+                // Make block kinematic initially (in shelf, not affected by physics)
                 Rigidbody rb = block.GetComponent<Rigidbody>();
                 if (rb != null)
                 {

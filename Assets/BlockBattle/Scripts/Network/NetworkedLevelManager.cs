@@ -49,6 +49,9 @@ namespace BlockBattle.Network
         [Header("References")]
         [SerializeField, Tooltip("Reference to the PlayerWorkspaceManager")]
         private PlayerWorkspaceManager _workspaceManager;
+        
+        [SerializeField, Tooltip("Reference to the XR Setup for player teleportation")]
+        private BlockBattleXRSetup _xrSetup;
 
         #endregion
 
@@ -598,20 +601,53 @@ namespace BlockBattle.Network
         #region Build Completion
 
         /// <summary>
-        /// Called by clients to report their build completion.
+        /// Handles build completion directly without relying on ServerRpc.
+        /// In DA mode, ServerRpc doesn't work reliably, so we use this direct approach.
         /// </summary>
-        [ServerRpc(RequireOwnership = false)]
-        public void ReportBuildCompleteServerRpc(float accuracy, ServerRpcParams rpcParams = default)
+        /// <param name="workspaceIndex">The workspace index of the player who completed</param>
+        /// <param name="accuracy">The build accuracy percentage</param>
+        public void HandleBuildCompletion(int workspaceIndex, float accuracy)
         {
-            ulong clientId = rpcParams.Receive.SenderClientId;
-            int workspaceIndex = _workspaceManager.GetWorkspaceIndexForClient(clientId);
-
+            Debug.Log($"NetworkedLevelManager: HandleBuildCompletion called! WorkspaceIndex={workspaceIndex}, Accuracy={accuracy:F1}%, IsSessionOwner={IsSessionOwner}");
+            
+            // Validate workspace index
             if (workspaceIndex < 0 || workspaceIndex > 1)
             {
-                Debug.LogWarning($"NetworkedLevelManager: Invalid workspace index for client {clientId}");
+                Debug.LogError($"NetworkedLevelManager: Invalid workspace index {workspaceIndex}");
                 return;
             }
-
+            
+            // If we're the session owner, process the completion directly
+            if (IsSessionOwner)
+            {
+                ProcessBuildCompletion(workspaceIndex, accuracy);
+            }
+            else
+            {
+                // For non-session-owners, we need to notify the session owner
+                // Use a ServerRpc with explicit workspace index (not relying on sender ID)
+                Debug.Log($"NetworkedLevelManager: Non-owner calling NotifyBuildCompletionServerRpc");
+                NotifyBuildCompletionServerRpc(workspaceIndex, accuracy);
+            }
+        }
+        
+        /// <summary>
+        /// ServerRpc to notify session owner of build completion with explicit workspace index.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        private void NotifyBuildCompletionServerRpc(int workspaceIndex, float accuracy)
+        {
+            Debug.Log($"NetworkedLevelManager: NotifyBuildCompletionServerRpc received! WorkspaceIndex={workspaceIndex}, Accuracy={accuracy:F1}%");
+            ProcessBuildCompletion(workspaceIndex, accuracy);
+        }
+        
+        /// <summary>
+        /// Processes build completion logic. Called by session owner.
+        /// </summary>
+        private void ProcessBuildCompletion(int workspaceIndex, float accuracy)
+        {
+            Debug.Log($"NetworkedLevelManager: ProcessBuildCompletion - WorkspaceIndex={workspaceIndex}, Accuracy={accuracy:F1}%");
+            
             int playerNumber = workspaceIndex + 1;
 
             // Update accuracy
@@ -624,8 +660,12 @@ namespace BlockBattle.Network
                 _player2Accuracy.Value = accuracy;
             }
 
-            // Check if build is complete (meets threshold)
-            if (accuracy >= _completionThreshold && !_playerBuildComplete[workspaceIndex])
+            // Use a small tolerance to handle floating point precision issues
+            float effectiveThreshold = _completionThreshold - 0.1f; // 99.9% instead of 100%
+            Debug.Log($"NetworkedLevelManager: Checking completion - Accuracy={accuracy:F1}% >= EffectiveThreshold={effectiveThreshold:F1}%? {accuracy >= effectiveThreshold}. Already complete? {_playerBuildComplete[workspaceIndex]}");
+
+            // Check if build is complete (meets threshold with small tolerance)
+            if (accuracy >= effectiveThreshold && !_playerBuildComplete[workspaceIndex])
             {
                 _playerBuildComplete[workspaceIndex] = true;
 
@@ -638,13 +678,14 @@ namespace BlockBattle.Network
                     _buildWinner.Value = playerNumber;
                 }
 
-                Debug.Log($"NetworkedLevelManager: Player {playerNumber} completed build with {accuracy:F1}% accuracy in {_playerBuildCompleteTimes[workspaceIndex]:F1}s");
+                Debug.Log($"NetworkedLevelManager: Player {playerNumber} completed build with {accuracy:F1}% accuracy in {_playerBuildCompleteTimes[workspaceIndex]:F1}s - TRIGGERING DESTRUCTION PHASE!");
 
                 // Notify clients
                 PlayerBuildCompleteClientRpc(playerNumber, accuracy);
 
                 // Each player immediately starts their own destruction phase
                 // (they shoot their own structure)
+                Debug.Log($"NetworkedLevelManager: Calling StartPlayerDestructionPhaseClientRpc({workspaceIndex})");
                 StartPlayerDestructionPhaseClientRpc(workspaceIndex);
             }
         }
@@ -753,6 +794,8 @@ namespace BlockBattle.Network
 
         private void OnLevelIndexChanged(int previousValue, int newValue)
         {
+            Debug.Log($"NetworkedLevelManager: OnLevelIndexChanged from {previousValue} to {newValue}. IsSessionOwner={IsSessionOwner}");
+            
             OnLevelStarted?.Invoke(newValue + 1);
             
             // In Distributed Authority mode, ClientRPCs may not execute reliably.
@@ -767,7 +810,7 @@ namespace BlockBattle.Network
         /// </summary>
         private void SetupLevelLocally(int levelIndex)
         {
-            Debug.Log($"NetworkedLevelManager: SetupLevelLocally called with levelIndex={levelIndex}, configCount={_levelConfigurations.Count}");
+            Debug.Log($"NetworkedLevelManager: SetupLevelLocally called with levelIndex={levelIndex}, configCount={_levelConfigurations.Count}, IsSessionOwner={IsSessionOwner}");
             
             if (levelIndex < 0 || levelIndex >= _levelConfigurations.Count)
             {
@@ -778,22 +821,94 @@ namespace BlockBattle.Network
             var config = _levelConfigurations[levelIndex];
             Debug.Log($"NetworkedLevelManager: Got config: {(config != null ? config.ConfigurationName : "NULL")}");
 
-            // Each client sets up their own workspace
-            var workspace = _workspaceManager?.GetLocalPlayerWorkspace();
-            Debug.Log($"NetworkedLevelManager: WorkspaceManager={(_workspaceManager != null ? "exists" : "NULL")}, LocalWorkspace={(workspace != null ? "exists" : "NULL")}");
-            
-            if (workspace != null)
+            if (IsSessionOwner)
             {
-                Debug.Log($"NetworkedLevelManager: Setting up workspace for local player");
-                workspace.ClearWorkspace();
-                workspace.SpawnReferenceStructure(config);
-                workspace.SpawnBlocks(config);
-                workspace.SetupValidator(config);
-                workspace.SetSlingshotEnabled(false);
+                // Session owner spawns blocks for ALL workspaces as NetworkObjects
+                // These blocks are replicated to all clients via Netcode
+                Debug.Log($"NetworkedLevelManager: Session owner setting up ALL workspaces");
+                SetupAllWorkspacesAsOwner(config);
             }
             else
             {
-                Debug.LogWarning("NetworkedLevelManager: No workspace found for local player - may not be assigned yet");
+                // Non-owners set up local elements only (reference structures, validators)
+                // Blocks will be received via network replication from session owner
+                Debug.Log($"NetworkedLevelManager: Non-owner setting up local elements only");
+                SetupLocalWorkspaceElements(config);
+            }
+        }
+        
+        /// <summary>
+        /// Session owner sets up all workspaces, spawning networked blocks.
+        /// </summary>
+        private void SetupAllWorkspacesAsOwner(BlockSpawnConfiguration config)
+        {
+            Debug.Log($"*** NetworkedLevelManager: SetupAllWorkspacesAsOwner CALLED! Config: {(config != null ? config.ConfigurationName : "NULL")} ***");
+            
+            if (_workspaceManager == null)
+            {
+                Debug.LogError("*** NetworkedLevelManager: WorkspaceManager is NULL! Cannot setup workspaces! ***");
+                return;
+            }
+
+            if (_workspaceManager.Workspaces == null)
+            {
+                Debug.LogError("*** NetworkedLevelManager: Workspaces array is NULL! ***");
+                return;
+            }
+
+            int workspaceCount = _workspaceManager.Workspaces.Length;
+            Debug.Log($"*** NetworkedLevelManager: Found {workspaceCount} workspaces to setup ***");
+            
+            for (int i = 0; i < workspaceCount; i++)
+            {
+                var workspace = _workspaceManager.Workspaces[i];
+                if (workspace != null)
+                {
+                    Debug.Log($"*** NetworkedLevelManager: Setting up workspace[{i}] (WorkspaceIndex={workspace.WorkspaceIndex}) ***");
+                    
+                    workspace.ClearWorkspace();
+                    Debug.Log($"*** Workspace {workspace.WorkspaceIndex}: Cleared ***");
+                    
+                    workspace.SpawnReferenceStructure(config);
+                    Debug.Log($"*** Workspace {workspace.WorkspaceIndex}: Reference structure spawned ***");
+                    
+                    workspace.SpawnBlocks(config);
+                    Debug.Log($"*** Workspace {workspace.WorkspaceIndex}: SpawnBlocks called ***");
+                    
+                    workspace.SetupValidator(config);
+                    workspace.SetSlingshotEnabled(false);
+                    Debug.Log($"*** Workspace {workspace.WorkspaceIndex}: Setup COMPLETE ***");
+                }
+                else
+                {
+                    Debug.LogError($"*** NetworkedLevelManager: Workspace at index {i} is NULL! ***");
+                }
+            }
+            
+            Debug.Log($"*** NetworkedLevelManager: SetupAllWorkspacesAsOwner FINISHED for all {workspaceCount} workspaces ***");
+        }
+        
+        /// <summary>
+        /// Non-owner clients set up local-only elements (reference structures, validators).
+        /// Blocks are received via network replication.
+        /// </summary>
+        private void SetupLocalWorkspaceElements(BlockSpawnConfiguration config)
+        {
+            // Set up reference structures for all workspaces (these are local/visual only)
+            if (_workspaceManager != null)
+            {
+                foreach (var workspace in _workspaceManager.Workspaces)
+                {
+                    if (workspace != null)
+                    {
+                        Debug.Log($"NetworkedLevelManager: Non-owner setting up workspace {workspace.WorkspaceIndex} local elements");
+                        workspace.ClearWorkspace();
+                        workspace.SpawnReferenceStructure(config);
+                        // Don't spawn blocks - they come from network
+                        workspace.SetupValidator(config);
+                        workspace.SetSlingshotEnabled(false);
+                    }
+                }
             }
         }
 
@@ -834,9 +949,31 @@ namespace BlockBattle.Network
             if (workspace != null)
             {
                 workspace.SetSlingshotEnabled(true);
+                
+                // Teleport player to destruction position
+                TeleportToDestructionPosition(workspace);
             }
-
-            // TODO: Teleport player to destruction position
+        }
+        
+        /// <summary>
+        /// Teleports the local player to their destruction phase position.
+        /// </summary>
+        private void TeleportToDestructionPosition(PlayerWorkspace workspace)
+        {
+            if (_xrSetup == null)
+            {
+                _xrSetup = FindFirstObjectByType<BlockBattleXRSetup>();
+            }
+            
+            if (_xrSetup != null && workspace.DestructionPhasePosition != null)
+            {
+                _xrSetup.TeleportPlayer(workspace.DestructionPhasePosition);
+                Debug.Log($"NetworkedLevelManager: Teleported player to destruction position for workspace {workspace.WorkspaceIndex}");
+            }
+            else
+            {
+                Debug.LogWarning($"NetworkedLevelManager: Cannot teleport - XRSetup={_xrSetup != null}, DestructionPhasePosition={workspace.DestructionPhasePosition != null}");
+            }
         }
 
         /// <summary>
@@ -863,12 +1000,23 @@ namespace BlockBattle.Network
         [ClientRpc]
         private void StartPlayerDestructionPhaseClientRpc(int workspaceIndex)
         {
-            // Only the player who owns this workspace should enable their slingshot
+            Debug.Log($"NetworkedLevelManager: StartPlayerDestructionPhaseClientRpc RECEIVED! workspaceIndex={workspaceIndex}, LocalClientId={NetworkManager.Singleton?.LocalClientId}");
+            
+            // Only the player who owns this workspace should enable their slingshot and teleport
             var localWorkspace = _workspaceManager?.GetLocalPlayerWorkspace();
+            Debug.Log($"NetworkedLevelManager: Local workspace = {(localWorkspace != null ? localWorkspace.WorkspaceIndex.ToString() : "NULL")}");
+            
             if (localWorkspace != null && localWorkspace.WorkspaceIndex == workspaceIndex)
             {
+                Debug.Log($"NetworkedLevelManager: This is MY workspace! Enabling slingshot and teleporting...");
                 localWorkspace.SetSlingshotEnabled(true);
-                Debug.Log($"NetworkedLevelManager: Starting destruction phase for local player (workspace {workspaceIndex})");
+                
+                // Teleport player to destruction position
+                TeleportToDestructionPosition(localWorkspace);
+            }
+            else
+            {
+                Debug.Log($"NetworkedLevelManager: Not my workspace (mine={localWorkspace?.WorkspaceIndex}, target={workspaceIndex})");
             }
         }
 
@@ -980,6 +1128,113 @@ namespace BlockBattle.Network
         {
             if (_currentPhase.Value == NetworkedLevelPhase.WaitingForPlayers) return 0f;
             return Time.time - _levelStartTime;
+        }
+
+        /// <summary>
+        /// Restarts the current game by clearing all blocks and respawning from shelves.
+        /// Can be called by any player but only session owner can execute.
+        /// </summary>
+        public void RestartGame()
+        {
+            Debug.Log("NetworkedLevelManager: RestartGame called");
+            
+            if (IsSessionOwner)
+            {
+                RestartGameInternal();
+            }
+            else
+            {
+                // Request session owner to restart
+                RequestRestartServerRpc();
+            }
+        }
+
+        [ServerRpc(RequireOwnership = false)]
+        private void RequestRestartServerRpc(ServerRpcParams rpcParams = default)
+        {
+            if (IsSessionOwner)
+            {
+                RestartGameInternal();
+            }
+        }
+
+        private void RestartGameInternal()
+        {
+            Debug.Log($"NetworkedLevelManager: Executing RestartGameInternal. IsSessionOwner={IsSessionOwner}");
+            
+            // Get current level before clearing
+            int currentLevel = _currentLevelIndex.Value;
+            Debug.Log($"NetworkedLevelManager: Current level before restart: {currentLevel}");
+            
+            // Clear all networked blocks
+            ClearAllNetworkedBlocks();
+            
+            // Reset to building phase
+            _currentPhase.Value = NetworkedLevelPhase.Building;
+            
+            // Set to -1 first to force OnValueChanged to fire
+            Debug.Log("NetworkedLevelManager: Setting level index to -1 to reset");
+            _currentLevelIndex.Value = -1;
+            
+            // Wait for despawn to complete, then set back to current level
+            int targetLevel = currentLevel >= 0 ? currentLevel : 0;
+            Debug.Log($"NetworkedLevelManager: Starting coroutine to restart at level {targetLevel}");
+            StartCoroutine(ResetLevelAfterFrame(targetLevel));
+        }
+
+        private System.Collections.IEnumerator ResetLevelAfterFrame(int levelIndex)
+        {
+            Debug.Log($"NetworkedLevelManager: ResetLevelAfterFrame starting, will restart at level {levelIndex}");
+            
+            // Wait several frames for network despawn to complete
+            for (int i = 0; i < 10; i++)
+            {
+                yield return null;
+            }
+            
+            Debug.Log($"NetworkedLevelManager: Setting level index to {levelIndex} to trigger respawn");
+            _currentLevelIndex.Value = levelIndex;
+            _levelStartTime = Time.time;
+            
+            // Also explicitly call SetupLevelClientRpc to ensure all clients set up
+            // This mirrors what StartLevel does
+            SetupLevelClientRpc(levelIndex);
+            
+            // Reset phase to building
+            StartBuildingPhase();
+            
+            Debug.Log($"NetworkedLevelManager: Restarted at level {levelIndex}");
+        }
+
+        private void ClearAllNetworkedBlocks()
+        {
+            // Find all NetworkBlock instances and despawn them
+            var allBlocks = FindObjectsByType<NetworkBlock>(FindObjectsSortMode.None);
+            Debug.Log($"NetworkedLevelManager: Clearing {allBlocks.Length} networked blocks");
+            
+            foreach (var block in allBlocks)
+            {
+                if (block != null && block.NetworkObject != null && block.NetworkObject.IsSpawned)
+                {
+                    // Only the owner or session owner can despawn
+                    if (block.IsOwner || IsSessionOwner)
+                    {
+                        block.NetworkObject.Despawn();
+                    }
+                }
+            }
+            
+            // Also clear workspace spawners' tracking lists
+            if (_workspaceManager != null && _workspaceManager.Workspaces != null)
+            {
+                foreach (var workspace in _workspaceManager.Workspaces)
+                {
+                    if (workspace != null)
+                    {
+                        workspace.ClearWorkspace();
+                    }
+                }
+            }
         }
 
         #endregion
