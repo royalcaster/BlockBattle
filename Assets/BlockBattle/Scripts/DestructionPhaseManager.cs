@@ -134,6 +134,9 @@ namespace BlockBattle
             _checkTimer = 0f;
             _lastBlockCount = -1;
 
+            // Disable interaction on all blocks in the zone
+            DisableBlockInteractions();
+
             // Count initial blocks
             _totalBlocks = CountBlocksInZone();
             _lastBlockCount = _totalBlocks;
@@ -154,12 +157,65 @@ namespace BlockBattle
         }
 
         /// <summary>
+        /// Disables XR Grab interactions on all blocks in the zone.
+        /// </summary>
+        private void DisableBlockInteractions()
+        {
+            List<GameObject> blocks = GetBlocksInZone();
+            foreach (GameObject block in blocks)
+            {
+                XRGrabInteractable grab = block.GetComponent<XRGrabInteractable>();
+                if (grab != null)
+                {
+                    grab.enabled = false;
+                }
+            }
+            
+            if (m_DebugMode)
+            {
+                Debug.Log($"DestructionPhaseManager: Disabled interactions on {blocks.Count} blocks.");
+            }
+        }
+
+        /// <summary>
+        /// Re-enables XR Grab interactions on all blocks in the zone.
+        /// </summary>
+        private void EnableBlockInteractions()
+        {
+            // We need to find all player blocks, even those outside the zone if they were knocked out
+            XRGrabInteractable[] allInteractables = FindObjectsByType<XRGrabInteractable>(FindObjectsSortMode.None);
+            int count = 0;
+            foreach (var grab in allInteractables)
+            {
+                if (grab == null || grab.gameObject == null) continue;
+                
+                string name = grab.gameObject.name;
+                if (name.Contains("Block_") || name.Contains("_Shelf") || name.Contains("_Spawned"))
+                {
+                    if (!name.StartsWith("ReferenceBlock_") && !name.Contains("Reference"))
+                    {
+                        grab.enabled = true;
+                        count++;
+                    }
+                }
+            }
+            
+            if (m_DebugMode)
+            {
+                Debug.Log($"DestructionPhaseManager: Re-enabled interactions on {count} blocks.");
+            }
+        }
+
+        /// <summary>
         /// Stops the destruction phase without completing it.
         /// </summary>
         public void StopDestructionPhase()
         {
             _isActive = false;
             _completionPending = false;
+
+            // Re-enable interactions when phase stops
+            EnableBlockInteractions();
 
             // Disable slingshot
             if (m_Slingshot != null)
@@ -318,6 +374,9 @@ namespace BlockBattle
         {
             _isActive = false;
             _completionPending = false;
+
+            // Re-enable interactions when phase complete
+            EnableBlockInteractions();
 
             // Disable slingshot
             if (m_Slingshot != null)

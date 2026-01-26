@@ -149,23 +149,15 @@ namespace BlockBattle
         }
 
         /// <summary>
-        /// Ensures the XR Origin rotation stays fixed - only the camera should rotate for head tracking.
-        /// Position changes are allowed for locomotion (movement via controllers).
-        /// In proper VR setup, the XR Origin rotation should remain fixed at identity.
-        /// Head rotation should only affect the camera (via TrackedPoseDriver), not the entire XR Origin.
+        /// Ensures the XR Origin stays properly configured.
         /// </summary>
         private void LateUpdate()
         {
             if (m_XROrigin != null)
             {
-                // Keep rotation fixed - head rotation should only affect the camera via TrackedPoseDriver
-                // Position changes are allowed for locomotion (player movement via controllers)
-                Quaternion currentRot = m_XROrigin.transform.rotation;
-                if (Quaternion.Angle(currentRot, Quaternion.identity) > 0.1f)
-                {
-                    m_XROrigin.transform.rotation = Quaternion.identity;
-                    Debug.LogWarning($"BlockBattleXRSetup: XR Origin was rotated. Fixed to identity rotation.");
-                }
+                // We no longer force identity rotation here to allow for teleport rotation.
+                // If you notice issues with drift, you might want to re-add a softer 
+                // correction or only correct if NOT teleporting.
             }
         }
 
@@ -222,12 +214,12 @@ namespace BlockBattle
             // Move the XR Origin to the target position
             m_XROrigin.transform.position = position;
             
-            // Note: We don't change the XR Origin rotation because head tracking should handle that.
-            // The player will be at the position but facing based on their head orientation.
-            // If you need to force a facing direction, you'd need to rotate the XR Origin,
-            // but that conflicts with our LateUpdate that resets rotation.
+            // Set the XR Origin rotation to the target rotation
+            // This changes the player's default facing direction
+            Vector3 euler = rotation.eulerAngles;
+            m_XROrigin.transform.rotation = Quaternion.Euler(0, euler.y, 0);
             
-            Debug.Log($"BlockBattleXRSetup: Teleported player to {position}");
+            Debug.Log($"BlockBattleXRSetup: Teleported player to {position}, Rotation: {m_XROrigin.transform.rotation.eulerAngles.y} degrees");
         }
 
         /// <summary>

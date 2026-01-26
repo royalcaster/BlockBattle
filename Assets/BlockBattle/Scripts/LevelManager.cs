@@ -510,17 +510,24 @@ namespace BlockBattle
             
             Debug.Log($"LevelManager: Starting destruction phase - teleporting player to slingshot position...");
 
-            // Teleport player to destruction position
-            if (m_XRSetup != null && m_DestructionTeleportPosition != null)
+            // Teleport player to destruction position with 180 degree rotation
+            if (m_XRSetup != null)
             {
-                m_XRSetup.TeleportPlayer(m_DestructionTeleportPosition);
-            }
-            else if (m_DestructionManager != null && m_DestructionManager.ShootingPosition != null)
-            {
-                // Fallback to destruction manager's shooting position
-                if (m_XRSetup != null)
+                Transform targetTransform = null;
+                if (m_DestructionTeleportPosition != null)
                 {
-                    m_XRSetup.TeleportPlayer(m_DestructionManager.ShootingPosition);
+                    targetTransform = m_DestructionTeleportPosition;
+                }
+                else if (m_DestructionManager != null && m_DestructionManager.ShootingPosition != null)
+                {
+                    targetTransform = m_DestructionManager.ShootingPosition;
+                }
+
+                if (targetTransform != null)
+                {
+                    // Apply 180 degree rotation to face the other direction
+                    Quaternion rotation = targetTransform.rotation * Quaternion.Euler(0, 180, 0);
+                    m_XRSetup.TeleportPlayer(targetTransform.position, rotation);
                 }
             }
 
