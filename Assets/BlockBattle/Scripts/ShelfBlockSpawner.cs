@@ -165,6 +165,54 @@ namespace BlockBattle
             ValidatePrefabs();
         }
 
+        private void Start()
+        {
+            InitializeDoors();
+        }
+
+        /// <summary>
+        /// Ensures doors start fully closed and stable.
+        /// </summary>
+        private void InitializeDoors()
+        {
+            // Ignore collision between doors and the shelf itself to prevent physics "pops"
+            Collider shelfCollider = GetComponent<Collider>();
+
+            if (m_LeftDoor != null)
+            {
+                m_LeftDoor.transform.localRotation = Quaternion.identity;
+                Rigidbody rb = m_LeftDoor.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.Sleep();
+                }
+
+                if (shelfCollider != null)
+                {
+                    Collider doorCol = m_LeftDoor.GetComponent<Collider>();
+                    if (doorCol != null) Physics.IgnoreCollision(doorCol, shelfCollider);
+                }
+            }
+
+            if (m_RightDoor != null)
+            {
+                m_RightDoor.transform.localRotation = Quaternion.identity;
+                Rigidbody rb = m_RightDoor.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.Sleep();
+                }
+
+                if (shelfCollider != null)
+                {
+                    Collider doorCol = m_RightDoor.GetComponent<Collider>();
+                    if (doorCol != null) Physics.IgnoreCollision(doorCol, shelfCollider);
+                }
+            }
+            
+            Debug.Log("ShelfBlockSpawner: Doors initialized to closed state and shelf collisions ignored.");
+        }
+
         private void Update()
         {
             MonitorDoors();
@@ -712,10 +760,34 @@ namespace BlockBattle
                     block.AddComponent<BlockMovementTimeout>();
                 }
 
+                // Ignore collision with doors while inside the shelf to prevent doors from being pushed open
+                IgnoreDoorCollisions(block);
+
                 Debug.Log($"ShelfBlockSpawner: Spawned {entry.BlockType} ({entry.BlockColor}) at {spawnPosition}");
             }
 
             return block;
+        }
+
+        /// <summary>
+        /// Ignores collision between a block and the shelf doors.
+        /// </summary>
+        private void IgnoreDoorCollisions(GameObject block)
+        {
+            Collider blockCollider = block.GetComponent<Collider>();
+            if (blockCollider == null) return;
+
+            if (m_LeftDoor != null)
+            {
+                Collider doorCol = m_LeftDoor.GetComponent<Collider>();
+                if (doorCol != null) Physics.IgnoreCollision(blockCollider, doorCol);
+            }
+
+            if (m_RightDoor != null)
+            {
+                Collider doorCol = m_RightDoor.GetComponent<Collider>();
+                if (doorCol != null) Physics.IgnoreCollision(blockCollider, doorCol);
+            }
         }
 
         /// <summary>
