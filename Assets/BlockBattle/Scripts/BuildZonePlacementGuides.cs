@@ -27,9 +27,6 @@ namespace BlockBattle
         [Range(0.1f, 1f)]
         private float m_GuideOpacity = 0.5f;
 
-        [SerializeField, Tooltip("Show block type labels")]
-        private bool m_ShowLabels = false;
-
         [SerializeField, Tooltip("Maximum height above ground level to show guides (blocks above this are considered stacked)")]
         private float m_MaxGroundLevelHeight = 0.08f; // Only show guides for blocks at ground level
 

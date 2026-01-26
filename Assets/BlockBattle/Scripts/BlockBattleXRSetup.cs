@@ -175,7 +175,7 @@ namespace BlockBattle
         private void EnsureControllersVisible()
         {
             // Find all XR Controller components
-            var controllers = m_XROrigin.GetComponentsInChildren<UnityEngine.XR.Interaction.Toolkit.XRController>();
+            var controllers = m_XROrigin.GetComponentsInChildren<UnityEngine.XR.Interaction.Toolkit.XRBaseController>();
             
             foreach (var controller in controllers)
             {

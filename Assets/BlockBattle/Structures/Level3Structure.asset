@@ -21,7 +21,7 @@ MonoBehaviour:
     Rotation: {x: 0, y: 0, z: 0, w: 1}
     AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
   - BlockType: 3
-    BlockColor: 1
+    BlockColor: 0
     Position: {x: -0.25, y: 0.2, z: 0}
     Rotation: {x: 0, y: 0, z: 0.7071068, w: 0.7071068}
     AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
@@ -36,12 +36,12 @@ MonoBehaviour:
     Rotation: {x: -0.7071068, y: 0, z: 0, w: 0.7071068}
     AllowedRotations: {FlipX: 0, FlipY: 0, FlipZ: 1, Steps90X: 0, Steps90Y: 0, Steps90Z: 0}
   - BlockType: 3
-    BlockColor: 7
+    BlockColor: 0
     Position: {x: -0.1, y: 0.05, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
     AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
   - BlockType: 3
-    BlockColor: 7
+    BlockColor: 0
     Position: {x: 0.1, y: 0.05, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
     AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
@@ -61,7 +61,7 @@ MonoBehaviour:
     Rotation: {x: 0, y: 0, z: 0, w: 1}
     AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
   - BlockType: 3
-    BlockColor: 1
+    BlockColor: 0
     Position: {x: 0.25, y: 0.2, z: 0}
     Rotation: {x: 0, y: 0, z: 0.7071068, w: 0.7071068}
     AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
