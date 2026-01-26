@@ -525,9 +525,8 @@ namespace BlockBattle
 
                 if (targetTransform != null)
                 {
-                    // Apply 180 degree rotation to face the other direction
-                    Quaternion rotation = targetTransform.rotation * Quaternion.Euler(0, 180, 0);
-                    m_XRSetup.TeleportPlayer(targetTransform.position, rotation);
+                    // Teleport using the exact position and rotation of the marker
+                    m_XRSetup.TeleportPlayer(targetTransform.position, targetTransform.rotation);
                 }
             }
 
@@ -554,11 +553,12 @@ namespace BlockBattle
         /// </summary>
         private void OnDestructionPhaseComplete()
         {
-            Debug.Log($"LevelManager: Destruction phase complete!");
+            Debug.Log($"LevelManager: OnDestructionPhaseComplete called! Phase: {m_CurrentPhase}");
 
             // Teleport player back to building position (if specified)
             if (m_XRSetup != null && m_BuildingTeleportPosition != null)
             {
+                Debug.Log($"LevelManager: Teleporting back to building position: {m_BuildingTeleportPosition.name}");
                 m_XRSetup.TeleportPlayer(m_BuildingTeleportPosition);
             }
 

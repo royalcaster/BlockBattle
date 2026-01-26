@@ -196,10 +196,11 @@ namespace BlockBattle
 
         /// <summary>
         /// Teleports the player to a specific position and rotation.
+        /// Aligns the player's headset (camera) with the target rotation.
         /// </summary>
-        /// <param name="position">Target world position for the player's feet</param>
-        /// <param name="rotation">Target rotation (Y rotation only, facing direction)</param>
-        public void TeleportPlayer(Vector3 position, Quaternion rotation)
+        /// <param name="targetPosition">Target world position for the player's head</param>
+        /// <param name="targetRotation">Target rotation for the player's view</param>
+        public void TeleportPlayer(Vector3 targetPosition, Quaternion targetRotation)
         {
             if (m_XROrigin == null)
             {
@@ -211,15 +212,23 @@ namespace BlockBattle
                 }
             }
 
-            // Move the XR Origin to the target position
-            m_XROrigin.transform.position = position;
+            // Calculate target world rotation for the XR Origin
+            // We want Origin.Rotation * Camera.LocalRotation = TargetRotation
+            // So Origin.Rotation = TargetRotation * Inverse(Camera.LocalRotation)
+            Quaternion cameraLocalRot = m_XROrigin.Camera.transform.localRotation;
+            Vector3 cameraLocalEuler = cameraLocalRot.eulerAngles;
+            Quaternion originRotation = Quaternion.Euler(0, targetRotation.eulerAngles.y - cameraLocalEuler.y, 0);
+
+            m_XROrigin.transform.rotation = originRotation;
+
+            // Calculate target world position for the XR Origin
+            // We want Origin.Pos + Origin.Rotation * Camera.LocalPos = TargetPos
+            // So Origin.Pos = TargetPos - Origin.Rotation * Camera.LocalPos
+            Vector3 cameraLocalPos = m_XROrigin.Camera.transform.localPosition;
+            cameraLocalPos.y = 0; // Maintain floor height
+            m_XROrigin.transform.position = targetPosition - (originRotation * cameraLocalPos);
             
-            // Set the XR Origin rotation to the target rotation
-            // This changes the player's default facing direction
-            Vector3 euler = rotation.eulerAngles;
-            m_XROrigin.transform.rotation = Quaternion.Euler(0, euler.y, 0);
-            
-            Debug.Log($"BlockBattleXRSetup: Teleported player to {position}, Rotation: {m_XROrigin.transform.rotation.eulerAngles.y} degrees");
+            Debug.Log($"BlockBattleXRSetup: Teleported player to {targetPosition}, Origin Rotation: {originRotation.eulerAngles.y}");
         }
 
         /// <summary>
