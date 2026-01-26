@@ -13,23 +13,18 @@ MonoBehaviour:
   m_Name: Level3Structure
   m_EditorClassIdentifier: Assembly-CSharp::BlockBattle.BlockSpawnConfiguration
   ConfigurationName: Level3Structure
-  Description: 14-Teile Burg (Rote Zylinder und hoehere Daecher)
+  Description: 12-Teile Burg (Rote Rechtecke und hoehere Daecher)
   SpawnEntries:
   - BlockType: 0
     BlockColor: 6
     Position: {x: -0.25, y: 0.05, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
     AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
-  - BlockType: 1
+  - BlockType: 3
     BlockColor: 1
-    Position: {x: -0.25, y: 0.15, z: 0}
-    Rotation: {x: 0, y: 0, z: 0, w: 1}
-    AllowedRotations: {FlipX: 0, FlipY: 1, FlipZ: 0, Steps90X: 0, Steps90Y: 1, Steps90Z: 0}
-  - BlockType: 1
-    BlockColor: 1
-    Position: {x: -0.25, y: 0.25, z: 0}
-    Rotation: {x: 0, y: 0, z: 0, w: 1}
-    AllowedRotations: {FlipX: 0, FlipY: 1, FlipZ: 0, Steps90X: 0, Steps90Y: 1, Steps90Z: 0}
+    Position: {x: -0.25, y: 0.2, z: 0}
+    Rotation: {x: 0, y: 0, z: 0.7071068, w: 0.7071068}
+    AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
   - BlockType: 0
     BlockColor: 6
     Position: {x: -0.25, y: 0.35, z: 0}
@@ -65,16 +60,11 @@ MonoBehaviour:
     Position: {x: 0.25, y: 0.05, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
     AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
-  - BlockType: 1
+  - BlockType: 3
     BlockColor: 1
-    Position: {x: 0.25, y: 0.15, z: 0}
-    Rotation: {x: 0, y: 0, z: 0, w: 1}
-    AllowedRotations: {FlipX: 0, FlipY: 1, FlipZ: 0, Steps90X: 0, Steps90Y: 1, Steps90Z: 0}
-  - BlockType: 1
-    BlockColor: 1
-    Position: {x: 0.25, y: 0.25, z: 0}
-    Rotation: {x: 0, y: 0, z: 0, w: 1}
-    AllowedRotations: {FlipX: 0, FlipY: 1, FlipZ: 0, Steps90X: 0, Steps90Y: 1, Steps90Z: 0}
+    Position: {x: 0.25, y: 0.2, z: 0}
+    Rotation: {x: 0, y: 0, z: 0.7071068, w: 0.7071068}
+    AllowedRotations: {FlipX: 1, FlipY: 1, FlipZ: 1, Steps90X: 1, Steps90Y: 1, Steps90Z: 1}
   - BlockType: 0
     BlockColor: 6
     Position: {x: 0.25, y: 0.35, z: 0}

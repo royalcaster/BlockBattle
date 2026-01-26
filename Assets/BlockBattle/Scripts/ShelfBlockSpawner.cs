@@ -56,6 +56,12 @@ namespace BlockBattle
         [SerializeField, Tooltip("Spacing between blocks when spawning in meters")]
         private float m_SpawnSpacing = 0.12f;
 
+        [SerializeField, Tooltip("Number of blocks to spawn in a single row before starting a new row")]
+        private int m_BlocksPerRow = 7;
+
+        [SerializeField, Tooltip("Vertical offset between rows in meters")]
+        private float m_RowVerticalOffset = -0.8f;
+
         [SerializeField, Tooltip("Direction to arrange blocks when spawning (normalized)")]
         private Vector3 m_SpawnDirection = Vector3.right;
 
@@ -329,11 +335,18 @@ namespace BlockBattle
             Vector3 basePosition = m_SpawnAnchor != null ? m_SpawnAnchor.position : transform.position;
             Vector3 normalizedDirection = m_SpawnDirection.normalized;
 
-            // Spawn each block
+            // Spawn each block in rows
             int blockIndex = 0;
             foreach (BlockSpawnEntry entry in entries)
             {
-                Vector3 spawnPosition = basePosition + normalizedDirection * (blockIndex * m_SpawnSpacing);
+                int col = blockIndex % m_BlocksPerRow;
+                int row = blockIndex / m_BlocksPerRow;
+
+                // Calculate position with horizontal spacing and vertical row offset
+                Vector3 spawnPosition = basePosition + 
+                                      normalizedDirection * (col * m_SpawnSpacing) + 
+                                      Vector3.up * (row * m_RowVerticalOffset);
+
                 GameObject block = SpawnSingleBlock(entry, spawnPosition);
 
                 if (block != null)
@@ -840,7 +853,13 @@ namespace BlockBattle
             // Draw spawn direction
             Vector3 normalizedDir = m_SpawnDirection.normalized;
             Gizmos.color = Color.cyan;
-            Gizmos.DrawLine(spawnPos, spawnPos + normalizedDir * 0.5f);
+            
+            // Visualize the grid layout
+            for (int r = 0; r < 2; r++) // Show 2 rows
+            {
+                Vector3 rowStart = spawnPos + Vector3.up * (r * m_RowVerticalOffset);
+                Gizmos.DrawLine(rowStart, rowStart + normalizedDir * ((m_BlocksPerRow - 1) * m_SpawnSpacing));
+            }
 
             // Draw ejection direction
             Vector3 ejectDir = m_EjectionDirection != null 
