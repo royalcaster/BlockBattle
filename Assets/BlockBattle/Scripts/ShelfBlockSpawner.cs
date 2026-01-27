@@ -567,12 +567,20 @@ namespace BlockBattle
                 // Check if we're waiting for doors to close after blocks returned (last level)
                 if (_waitingForDoorsToClose)
                 {
-                    // Verify all blocks are still in the shelf
-                    if (AreAllBlocksReturned(_expectedBlockCountForClose))
+                    bool allReturned = AreAllBlocksReturned(_expectedBlockCountForClose);
+                    if (allReturned)
                     {
                         _waitingForDoorsToClose = false;
-                        Debug.Log("ShelfBlockSpawner: Doors closed with all blocks returned!");
+                        Debug.Log("ShelfBlockSpawner: Doors closed with all blocks returned! FIRING EVENT.");
                         OnDoorsClosedWithBlocksReturned?.Invoke();
+                    }
+                    else
+                    {
+                        // Log why it's not firing (only every few seconds to avoid spam)
+                        if (Time.frameCount % 60 == 0)
+                        {
+                            Debug.Log($"ShelfBlockSpawner: Waiting for close, but not all blocks returned. Stored: {StoredBlockCount}/{_expectedBlockCountForClose}");
+                        }
                     }
                 }
             }

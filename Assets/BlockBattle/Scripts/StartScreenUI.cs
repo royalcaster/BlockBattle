@@ -145,8 +145,8 @@ namespace BlockBattle
             // Update personal best display
             UpdatePersonalBestDisplay();
 
-            // Reset and show start screen after a short delay
-            StartCoroutine(ShowStartScreenAfterDelay(3f));
+            // Reset and show start screen after a delay (allowing player to see final results)
+            StartCoroutine(ShowStartScreenAfterDelay(5f));
         }
 
         /// <summary>

@@ -80,6 +80,9 @@ namespace BlockBattle
         [SerializeField, Tooltip("Text for success message")]
         private TextMeshProUGUI m_SuccessText;
 
+        [SerializeField, Tooltip("Reference to the ShelfProgressUI above the shelf")]
+        private ShelfProgressUI m_ShelfUI;
+
         [Header("Settings")]
         [SerializeField, Tooltip("Accuracy percentage required to complete a level (0-100)")]
         [Range(90f, 100f)]
@@ -216,6 +219,8 @@ namespace BlockBattle
                 m_DestructionManager = FindAnyObjectByType<DestructionPhaseManager>();
             if (m_XRSetup == null)
                 m_XRSetup = FindAnyObjectByType<BlockBattleXRSetup>();
+            if (m_ShelfUI == null)
+                m_ShelfUI = FindAnyObjectByType<ShelfProgressUI>();
 
             // Subscribe to destruction manager events
             if (m_DestructionManager != null)
@@ -381,12 +386,18 @@ namespace BlockBattle
             {
                 Debug.Log("LevelManager: Shelf doors closed! Finishing game...");
                 
+                // Change phase to prevent UpdateWaitingForReturnPhase from running again
+                m_CurrentPhase = LevelPhase.Transitioning;
+                
                 // Stop timer immediately when doors close
                 m_TimerRunning = false;
                 m_FinalTime = m_GameTimer;
                 
-                // Now start the countdown to show final results
-                StartCountdown();
+                // Show the final results immediately (EndTime_Canvas)
+                ShowAllLevelsCompleteMessage();
+                
+                // Fire completion event (triggers the 5s delay in StartScreenUI)
+                OnAllLevelsCompleted?.Invoke();
             }
         }
 
@@ -692,12 +703,9 @@ namespace BlockBattle
             }
             else
             {
-                // All levels complete - stop timer and save final time
-                m_TimerRunning = false;
-                m_FinalTime = m_GameTimer;
-                Debug.Log($"LevelManager: ALL LEVELS COMPLETE! Final time: {FormatTime(m_FinalTime)}");
-                ShowAllLevelsCompleteMessage();
-                OnAllLevelsCompleted?.Invoke();
+                // This block is now handled immediately in OnShelfDoorsClosedWithBlocks
+                // to avoid waiting for transitions on the last level.
+                Debug.Log("LevelManager: Transition logic for last level handled via shelf closure.");
             }
         }
 
@@ -839,6 +847,8 @@ namespace BlockBattle
         /// </summary>
         private void ShowAllLevelsCompleteMessage()
         {
+            Debug.Log($"LevelManager: Showing final results on shelf UI. Final time: {FormatTime(m_FinalTime)}");
+
             if (m_SuccessPanel != null)
             {
                 m_SuccessPanel.SetActive(true);
@@ -846,7 +856,19 @@ namespace BlockBattle
 
             if (m_SuccessText != null)
             {
-                m_SuccessText.text = "Congratulations!\n\nYou've completed all levels!";
+                m_SuccessText.text = $"CONGRATULATIONS!\n\nYou've completed all levels!";
+            }
+
+            // Show the final time prominently on the shelf UI
+            if (m_ShelfUI != null)
+            {
+                m_ShelfUI.ShowFinalTime(m_FinalTime);
+            }
+
+            // Hide the block indicators so they don't shine through the start screen/end message
+            if (m_GameplayHUD != null)
+            {
+                m_GameplayHUD.SetHUDVisible(false);
             }
         }
 
@@ -984,6 +1006,7 @@ namespace BlockBattle
             if (m_GameplayHUD != null)
             {
                 m_GameplayHUD.ResetHUD();
+                m_GameplayHUD.SetHUDVisible(false);
             }
 
             // Disable player movement
@@ -996,7 +1019,7 @@ namespace BlockBattle
         }
 
         /// <summary>
-        /// Formats a time value in seconds to a readable MM:SS.ss format.
+        /// Formats a time value in seconds to a readable MM:SS,ss format.
         /// </summary>
         /// <param name="timeInSeconds">Time in seconds</param>
         /// <returns>Formatted time string</returns>
@@ -1004,7 +1027,8 @@ namespace BlockBattle
         {
             int minutes = Mathf.FloorToInt(timeInSeconds / 60f);
             float seconds = timeInSeconds % 60f;
-            return $"{minutes:00}:{seconds:00.00}";
+            // Use Replace to ensure a comma is used as the decimal separator
+            return $"{minutes:00}:{seconds:00.00}".Replace('.', ',');
         }
 
         #endregion

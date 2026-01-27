@@ -194,6 +194,12 @@ namespace BlockBattle
                 // Fallback: toggle the game object
                 gameObject.SetActive(visible);
             }
+
+            // Also explicitly hide the container to ensure 3D icons disappear
+            if (m_BlockIndicatorContainer != null)
+            {
+                m_BlockIndicatorContainer.gameObject.SetActive(visible);
+            }
         }
 
         private bool IsHUDVisible()
