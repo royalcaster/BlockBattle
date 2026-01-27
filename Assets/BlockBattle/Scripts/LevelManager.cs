@@ -83,6 +83,16 @@ namespace BlockBattle
         [SerializeField, Tooltip("Reference to the ShelfProgressUI above the shelf")]
         private ShelfProgressUI m_ShelfUI;
 
+        [Header("Audio")]
+        [SerializeField, Tooltip("Sound to play when a building is finished")]
+        private AudioClip m_CompletionSound;
+
+        [SerializeField, Tooltip("Sound to play when the entire game is finished")]
+        private AudioClip m_GameFinishedSound;
+
+        [SerializeField, Tooltip("AudioSource to play sounds (if null, will try to use one on this object)")]
+        private AudioSource m_CompletionAudioSource;
+
         [Header("Settings")]
         [SerializeField, Tooltip("Accuracy percentage required to complete a level (0-100)")]
         [Range(90f, 100f)]
@@ -221,6 +231,8 @@ namespace BlockBattle
                 m_XRSetup = FindAnyObjectByType<BlockBattleXRSetup>();
             if (m_ShelfUI == null)
                 m_ShelfUI = FindAnyObjectByType<ShelfProgressUI>();
+            if (m_CompletionAudioSource == null)
+                m_CompletionAudioSource = GetComponent<AudioSource>();
 
             // Subscribe to destruction manager events
             if (m_DestructionManager != null)
@@ -386,6 +398,18 @@ namespace BlockBattle
             {
                 Debug.Log("LevelManager: Shelf doors closed! Finishing game...");
                 
+                // Force doors to be perfectly closed via script
+                if (m_ShelfSpawner != null)
+                {
+                    m_ShelfSpawner.ForceCloseDoors();
+                }
+
+                // Play "Game Finished" sound
+                if (m_CompletionAudioSource != null && m_GameFinishedSound != null)
+                {
+                    m_CompletionAudioSource.PlayOneShot(m_GameFinishedSound);
+                }
+                
                 // Change phase to prevent UpdateWaitingForReturnPhase from running again
                 m_CurrentPhase = LevelPhase.Transitioning;
                 
@@ -505,10 +529,25 @@ namespace BlockBattle
         /// </summary>
         private void OnBuildingComplete()
         {
+            // IMMEDIATELY switch phase to avoid double-triggering during the 1s delay
+            m_CurrentPhase = LevelPhase.Transitioning;
+
             // Fire event
             OnBuildingPhaseCompleted?.Invoke(CurrentLevelNumber);
 
-            // Start destruction phase
+            // Play the "Building Finished" sound
+            if (m_CompletionAudioSource != null && m_CompletionSound != null)
+            {
+                m_CompletionAudioSource.PlayOneShot(m_CompletionSound);
+            }
+
+            // Wait 1 second then start destruction phase
+            StartCoroutine(WaitThenStartDestruction());
+        }
+
+        private IEnumerator WaitThenStartDestruction()
+        {
+            yield return new WaitForSeconds(1f);
             StartDestructionPhase();
         }
 

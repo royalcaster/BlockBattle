@@ -83,7 +83,7 @@ namespace BlockBattle
         private float m_TriggerAngle = 70f;
 
         [SerializeField, Range(0f, 120f), Tooltip("Door angle below which the system resets (must be less than trigger angle)")]
-        private float m_ResetAngle = 60f;
+        private float m_ResetAngle = 5f;
 
         [SerializeField, Tooltip("Impulse force applied to doors when blocks are ejected")]
         private float m_DoorKickForce = 30f;
@@ -557,13 +557,6 @@ namespace BlockBattle
                     _rightDoorAutoOpening = false;
                 }
 
-                if (_hasTriggered)
-                {
-                    _hasTriggered = false;
-                    Debug.Log("ShelfBlockSpawner: System reset - ready to fire again");
-                    OnShelfReset?.Invoke();
-                }
-
                 // Check if we're waiting for doors to close after blocks returned (last level)
                 if (_waitingForDoorsToClose)
                 {
@@ -630,6 +623,39 @@ namespace BlockBattle
         /// Gets whether we are currently waiting for doors to close.
         /// </summary>
         public bool IsWaitingForDoorsClose => _waitingForDoorsToClose;
+
+        /// <summary>
+        /// Forces the doors to be perfectly closed and stable.
+        /// Call this when the game finishes to ensure doors don't stay slightly ajar.
+        /// </summary>
+        public void ForceCloseDoors()
+        {
+            if (m_LeftDoor != null)
+            {
+                m_LeftDoor.transform.localRotation = Quaternion.identity;
+                Rigidbody rb = m_LeftDoor.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.Sleep();
+                }
+            }
+
+            if (m_RightDoor != null)
+            {
+                m_RightDoor.transform.localRotation = Quaternion.identity;
+                Rigidbody rb = m_RightDoor.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.Sleep();
+                }
+            }
+            
+            Debug.Log("ShelfBlockSpawner: Doors forced to perfectly closed state.");
+        }
 
         #endregion
 
