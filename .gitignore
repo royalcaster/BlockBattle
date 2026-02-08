@@ -84,3 +84,7 @@ Docs/SessionSummaries/
 # Log files
 debug.log
 *.log
+
+# Cursor IDE configuration
+.cursorrules
+.cursor/
