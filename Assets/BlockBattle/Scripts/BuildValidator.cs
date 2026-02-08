@@ -87,10 +87,6 @@ namespace BlockBattle
         [SerializeField, Tooltip("Fixed rotation to use when auto-align is disabled (degrees)")]
         private float m_FixedRotation = 0f;
 
-        [Header("Detection Settings")]
-        [SerializeField, Tooltip("Maximum height above build zone to detect blocks")]
-        private float m_MaxHeightAboveTable = 1.0f;
-
         [Header("References")]
         [SerializeField] private GameObject m_Table;
         [SerializeField] private BuildZone m_BuildZone;
@@ -109,12 +105,6 @@ namespace BlockBattle
         private List<Vector3> m_ExpectedWorldPositions = new List<Vector3>();
         private Vector3 m_LastBuildCenter;
         private float m_LastBestRotation = 0f;
-        
-        // Auto-alignment state: lock rotation after first block
-        private bool m_RotationLocked = false;
-        private float m_LockedRotation = 0f;
-        private int m_LastPlacedBlockCount = 0;
-        private bool m_Initialized = false;
         
         // Effective height offset (may be adjusted for single-block structures)
         private float m_EffectiveHeightOffset = 0.12f;
@@ -158,11 +148,7 @@ namespace BlockBattle
         /// </summary>
         public void ResetAlignmentLock()
         {
-            m_RotationLocked = false;
-            m_LockedRotation = 0f;
             m_LastBestRotation = 0f;
-            m_LastPlacedBlockCount = 0;
-            m_Initialized = true; // Mark as initialized after reset
             Debug.Log("BuildValidator: Alignment lock reset");
         }
 
@@ -199,6 +185,12 @@ namespace BlockBattle
             // Step 1: Collect all placed blocks in the build zone
             List<GameObject> placedBlocks = CollectPlacedBlocks();
             result.PlacedBlocksFound = placedBlocks.Count;
+
+            // Log detected blocks for debugging
+            foreach (var b in placedBlocks)
+            {
+                Debug.Log($"BuildValidator: Detected block '{b.name}' identified as Type:{GetBlockType(b)}, Color:{GetBlockColor(b)}");
+            }
 
             // Step 2: Get reference entries
             List<BlockSpawnEntry> referenceEntries = m_ReferenceConfiguration.SpawnEntries.ToList();
@@ -634,7 +626,13 @@ namespace BlockBattle
                 BlockColor groupColor = refEntries[0].entry.BlockColor;
                 
                 var matchingPlaced = unmatchedPlaced
-                    .Where(b => GetBlockType(b) == groupType && GetBlockColor(b) == groupColor)
+                    .Where(b => {
+                        BlockType type = GetBlockType(b);
+                        BlockColor color = GetBlockColor(b);
+                        bool matches = type == groupType && color == groupColor;
+                        if (matches) Debug.Log($"BuildValidator: Block '{b.name}' matched group {groupType}_{groupColor}");
+                        return matches;
+                    })
                     .ToList();
 
                 // Calculate expected positions for this group (with rotation offset)
@@ -699,6 +697,13 @@ namespace BlockBattle
                         blockResult.IsPositionCorrect = posError <= effectivePosTolerance;
                         blockResult.IsRotationCorrect = !m_ValidateRotation || rotationError <= m_RotationTolerance;
                         blockResult.IsCorrect = blockResult.IsPositionCorrect && blockResult.IsRotationCorrect;
+
+                        if (!blockResult.IsCorrect)
+                        {
+                            Debug.Log($"BuildValidator: Block '{matchedBlock.name}' ATTEMPTED match with reference position {refRelativePos} but failed. " +
+                                      $"PosCorrect: {blockResult.IsPositionCorrect} (Err: {posError:F3}m, Tol: {effectivePosTolerance:F3}m), " +
+                                      $"RotCorrect: {blockResult.IsRotationCorrect} (Err: {rotationError:F1}°, Tol: {m_RotationTolerance}°)");
+                        }
 
                         unmatchedPlaced.Remove(matchedBlock);
                         result.PresentBlocks++;
@@ -1170,47 +1175,8 @@ namespace BlockBattle
 
         private BlockColor GetBlockColor(GameObject block)
         {
-            if (block == null) return BlockColor.Natural;
-            
-            // FIRST: Check the block's name - this is the most reliable since spawner sets it
-            // e.g., "Block_Rectangle_DarkGreen_Spawned" contains "DarkGreen"
-            string blockName = block.name;
-            
-            // Check longer/more specific color names FIRST to avoid "Green" matching "DarkGreen"
-            if (blockName.Contains("DarkGreen")) return BlockColor.DarkGreen;
-            if (blockName.Contains("Natural")) return BlockColor.Natural;
-            if (blockName.Contains("Red")) return BlockColor.Red;
-            if (blockName.Contains("Green")) return BlockColor.Green;
-            if (blockName.Contains("Yellow")) return BlockColor.Yellow;
-            if (blockName.Contains("Blue")) return BlockColor.Blue;
-            if (blockName.Contains("Orange")) return BlockColor.Orange;
-            
-            // FALLBACK: Check material names if block name didn't have color info
-            MeshRenderer[] renderers = block.GetComponentsInChildren<MeshRenderer>(true);
-            
-            if (renderers != null && renderers.Length > 0)
-            {
-                foreach (MeshRenderer renderer in renderers)
-                {
-                    if (renderer == null) continue;
-                    
-                    Material mat = renderer.material ?? renderer.sharedMaterial;
-                    if (mat == null) continue;
-                    
-                    string materialName = mat.name.Replace(" (Instance)", "");
-                    
-                    // Check longer names first to avoid substring false matches
-                    if (materialName.Contains("DarkGreen")) return BlockColor.DarkGreen;
-                    if (materialName.Contains("Natural")) return BlockColor.Natural;
-                    if (materialName.Contains("Red")) return BlockColor.Red;
-                    if (materialName.Contains("Green")) return BlockColor.Green;
-                    if (materialName.Contains("Yellow")) return BlockColor.Yellow;
-                    if (materialName.Contains("Blue")) return BlockColor.Blue;
-                    if (materialName.Contains("Orange")) return BlockColor.Orange;
-                }
-            }
-
-            return BlockColor.Natural;
+            BlockReference reference = BlockReference.FromGameObject(block);
+            return reference?.BlockColor ?? BlockColor.Natural;
         }
 
         // === Debug Visualization ===

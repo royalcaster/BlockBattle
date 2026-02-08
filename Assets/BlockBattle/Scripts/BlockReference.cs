@@ -1,4 +1,6 @@
 using UnityEngine;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace BlockBattle
 {
@@ -11,6 +13,9 @@ namespace BlockBattle
         [Tooltip("Type of block (Cube, Cylinder, Triangle)")]
         public BlockType BlockType;
 
+        [Tooltip("Color of the block")]
+        public BlockColor BlockColor;
+
         [Tooltip("Position of the block in world space")]
         public Vector3 Position;
 
@@ -21,18 +26,20 @@ namespace BlockBattle
         /// Creates a new BlockReference with the specified parameters.
         /// </summary>
         /// <param name="blockType">Type of the block</param>
+        /// <param name="blockColor">Color of the block</param>
         /// <param name="position">World position of the block</param>
         /// <param name="rotation">World rotation of the block</param>
-        public BlockReference(BlockType blockType, Vector3 position, Quaternion rotation)
+        public BlockReference(BlockType blockType, BlockColor blockColor, Vector3 position, Quaternion rotation)
         {
             BlockType = blockType;
+            BlockColor = blockColor;
             Position = position;
             Rotation = rotation;
         }
 
         /// <summary>
         /// Creates a BlockReference from a GameObject's transform.
-        /// Attempts to determine block type from the GameObject's name or prefab.
+        /// Attempts to determine block type and color from the GameObject's name or prefab.
         /// </summary>
         /// <param name="gameObject">The GameObject to create a reference from</param>
         /// <returns>BlockReference if block type could be determined, null otherwise</returns>
@@ -44,17 +51,40 @@ namespace BlockBattle
             }
 
             BlockType blockType = DetermineBlockType(gameObject);
+            BlockColor blockColor = DetermineBlockColor(gameObject);
             
-            // If we couldn't determine the type (defaulted to Cube), try to verify it's actually a block
-            // by checking if it has XRGrabInteractable component
-            bool isBlock = gameObject.GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>() != null;
-            if (!isBlock && blockType == BlockType.Cube)
+            return new BlockReference(blockType, blockColor, gameObject.transform.position, gameObject.transform.rotation);
+        }
+
+        private static BlockColor DetermineBlockColor(GameObject gameObject)
+        {
+            string name = gameObject.name.ToLower();
+            List<string> searchStrings = new List<string> { name };
+            
+            MeshRenderer[] renderers = gameObject.GetComponentsInChildren<MeshRenderer>(true);
+            foreach (var renderer in renderers)
             {
-                // Might not be a block, but we'll still create the reference
-                // The recorder will filter these out
+                if (renderer != null)
+                {
+                    foreach (var mat in renderer.sharedMaterials)
+                    {
+                        if (mat != null) searchStrings.Add(mat.name.ToLower());
+                    }
+                }
             }
 
-            return new BlockReference(blockType, gameObject.transform.position, gameObject.transform.rotation);
+            // More specific matches first
+            if (searchStrings.Any(s => s.Contains("darkgreen") || s.Contains("dark_green"))) return BlockColor.DarkGreen;
+            if (searchStrings.Any(s => s.Contains("white"))) return BlockColor.White;
+            if (searchStrings.Any(s => s.Contains("red"))) return BlockColor.Red;
+            if (searchStrings.Any(s => s.Contains("green"))) return BlockColor.Green;
+            if (searchStrings.Any(s => s.Contains("yellow"))) return BlockColor.Yellow;
+            if (searchStrings.Any(s => s.Contains("blue"))) return BlockColor.Blue;
+            if (searchStrings.Any(s => s.Contains("orange"))) return BlockColor.Orange;
+            if (searchStrings.Any(s => s.Contains("natural") || s.Contains("brown") || s.Contains("wood") || s.Contains("holz"))) 
+                return BlockColor.Natural;
+
+            return BlockColor.Natural;
         }
 
         /// <summary>
@@ -64,32 +94,44 @@ namespace BlockBattle
         /// <returns>The detected BlockType, or Cube as default if unable to determine</returns>
         private static BlockType DetermineBlockType(GameObject gameObject)
         {
-            string name = gameObject.name.ToLower();
+            // Collect name and all material names
+            string objectName = gameObject.name.ToLower();
+            List<string> searchStrings = new List<string> { objectName };
+            
+            MeshRenderer[] renderers = gameObject.GetComponentsInChildren<MeshRenderer>(true);
+            foreach (var renderer in renderers)
+            {
+                if (renderer != null)
+                {
+                    // Add renderer's own name too, sometimes it helps
+                    searchStrings.Add(renderer.gameObject.name.ToLower());
+                    foreach (var mat in renderer.sharedMaterials)
+                    {
+                        if (mat != null) searchStrings.Add(mat.name.ToLower());
+                    }
+                }
+            }
 
-            if (name.Contains("cube"))
-            {
-                return BlockType.Cube;
-            }
-            else if (name.Contains("cylinder"))
-            {
-                return BlockType.Cylinder;
-            }
-            else if (name.Contains("bigtriangle") || (name.Contains("big") && name.Contains("triangle")))
-            {
+            // High priority matches (BigTriangle must be before Triangle)
+            if (searchStrings.Any(s => s.Contains("bigtriangle") || (s.Contains("big") && s.Contains("triangle"))))
                 return BlockType.BigTriangle;
-            }
-            else if (name.Contains("triangle"))
-            {
+            
+            if (searchStrings.Any(s => s.Contains("triangle") || s.Contains("dreieck")))
                 return BlockType.Triangle;
-            }
-            else if (name.Contains("rectangle") || name.Contains("rectangular"))
-            {
+            
+            // Check for Rectangle / Rectangular / Rect
+            if (searchStrings.Any(s => s.Contains("rectangle") || s.Contains("rectangular") || s.Contains("rechteck") || s.Contains("_rect_") || s.Contains("rect_")))
                 return BlockType.Rectangle;
-            }
-            else if (name.Contains("arch") || name.Contains("archway"))
-            {
+            
+            // Check for Arch / Archway / Bogens
+            if (searchStrings.Any(s => s.Contains("arch") || s.Contains("archway") || s.Contains("bogen") || s.Contains("tür") || s.Contains("tuer")))
                 return BlockType.Arch;
-            }
+            
+            if (searchStrings.Any(s => s.Contains("cylinder") || s.Contains("zylinder")))
+                return BlockType.Cylinder;
+            
+            if (searchStrings.Any(s => s.Contains("cube") || s.Contains("würfel") || s.Contains("wuerfel") || s.Contains("quad") || s.Contains("block")))
+                return BlockType.Cube;
 
             // Try to check prefab name if this is a prefab instance
             #if UNITY_EDITOR
@@ -98,35 +140,22 @@ namespace BlockBattle
             {
                 string prefabName = prefabAsset.name.ToLower();
                 
-                if (prefabName.Contains("cube"))
-                {
-                    return BlockType.Cube;
-                }
-                else if (prefabName.Contains("cylinder"))
-                {
-                    return BlockType.Cylinder;
-                }
-                else if (prefabName.Contains("bigtriangle") || (prefabName.Contains("big") && prefabName.Contains("triangle")))
-                {
+                if (prefabName.Contains("bigtriangle") || (prefabName.Contains("big") && prefabName.Contains("triangle")))
                     return BlockType.BigTriangle;
-                }
-                else if (prefabName.Contains("triangle"))
-                {
+                if (prefabName.Contains("triangle") || prefabName.Contains("dreieck"))
                     return BlockType.Triangle;
-                }
-                else if (prefabName.Contains("rectangle") || prefabName.Contains("rectangular"))
-                {
+                if (prefabName.Contains("rectangle") || prefabName.Contains("rectangular") || prefabName.Contains("rechteck") || prefabName.Contains("rect"))
                     return BlockType.Rectangle;
-                }
-                else if (prefabName.Contains("arch") || prefabName.Contains("archway"))
-                {
+                if (prefabName.Contains("arch") || prefabName.Contains("archway") || prefabName.Contains("bogen"))
                     return BlockType.Arch;
-                }
+                if (prefabName.Contains("cylinder") || prefabName.Contains("zylinder"))
+                    return BlockType.Cylinder;
+                if (prefabName.Contains("cube") || prefabName.Contains("würfel") || prefabName.Contains("wuerfel") || prefabName.Contains("block"))
+                    return BlockType.Cube;
             }
             #endif
 
-            // Default to Cube if unable to determine - this is a problem case!
-            Debug.LogWarning($"BlockReference: Could not determine block type for '{gameObject.name}' - defaulting to Cube");
+            // Default to Cube if unable to determine
             return BlockType.Cube;
         }
 

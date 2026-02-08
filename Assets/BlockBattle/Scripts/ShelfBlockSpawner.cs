@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -56,6 +57,12 @@ namespace BlockBattle
         [SerializeField, Tooltip("Spacing between blocks when spawning in meters")]
         private float m_SpawnSpacing = 0.12f;
 
+        [SerializeField, Tooltip("Number of blocks to spawn in a single row before starting a new row")]
+        private int m_BlocksPerRow = 7;
+
+        [SerializeField, Tooltip("Vertical offset between rows in meters")]
+        private float m_RowVerticalOffset = -0.8f;
+
         [SerializeField, Tooltip("Direction to arrange blocks when spawning (normalized)")]
         private Vector3 m_SpawnDirection = Vector3.right;
 
@@ -76,8 +83,8 @@ namespace BlockBattle
         [SerializeField, Range(0f, 120f), Tooltip("Door angle at which blocks are ejected")]
         private float m_TriggerAngle = 70f;
 
-        [SerializeField, Range(0f, 120f), Tooltip("Door angle below which the system resets (must be less than trigger angle)")]
-        private float m_ResetAngle = 60f;
+        [SerializeField, Range(0f, 10f), Tooltip("Door angle below which the system resets and game can finish (must be very close to 0)")]
+        private float m_ResetAngle = 5f;
 
         [SerializeField, Tooltip("Impulse force applied to doors when blocks are ejected")]
         private float m_DoorKickForce = 30f;
@@ -129,26 +136,14 @@ namespace BlockBattle
 
         #endregion
 
-        [Header("Auto-Open Door Settings")]
-        [SerializeField, Tooltip("Angle threshold after which doors automatically swing fully open")]
-        [Range(10f, 60f)]
-        private float m_AutoOpenThreshold = 30f;
-
-        [SerializeField, Tooltip("Motor velocity for auto-opening doors (degrees per second)")]
-        private float m_AutoOpenMotorVelocity = 150f;
-
-        [SerializeField, Tooltip("Motor force for auto-opening doors")]
-        private float m_AutoOpenMotorForce = 50f;
-
         #region Private State
 
         private bool _hasTriggered = false;
         private List<Rigidbody> _storedBlocks = new List<Rigidbody>();
         private List<GameObject> _spawnedBlockObjects = new List<GameObject>();
-        private bool _leftDoorAutoOpening = false;
-        private bool _rightDoorAutoOpening = false;
         private bool _waitingForDoorsToClose = false;
         private int _expectedBlockCountForClose = 0;
+        private bool _isKicking = false;
 
         #endregion
 
@@ -157,6 +152,54 @@ namespace BlockBattle
         private void Awake()
         {
             ValidatePrefabs();
+        }
+
+        private void Start()
+        {
+            InitializeDoors();
+        }
+
+        /// <summary>
+        /// Ensures doors start fully closed and stable.
+        /// </summary>
+        private void InitializeDoors()
+        {
+            // Ignore collision between doors and the shelf itself to prevent physics "pops"
+            Collider shelfCollider = GetComponent<Collider>();
+
+            if (m_LeftDoor != null)
+            {
+                m_LeftDoor.transform.localRotation = Quaternion.identity;
+                Rigidbody rb = m_LeftDoor.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.Sleep();
+                }
+
+                if (shelfCollider != null)
+                {
+                    Collider doorCol = m_LeftDoor.GetComponent<Collider>();
+                    if (doorCol != null) Physics.IgnoreCollision(doorCol, shelfCollider);
+                }
+            }
+
+            if (m_RightDoor != null)
+            {
+                m_RightDoor.transform.localRotation = Quaternion.identity;
+                Rigidbody rb = m_RightDoor.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.Sleep();
+                }
+
+                if (shelfCollider != null)
+                {
+                    Collider doorCol = m_RightDoor.GetComponent<Collider>();
+                    if (doorCol != null) Physics.IgnoreCollision(doorCol, shelfCollider);
+                }
+            }
+            
+            Debug.Log("ShelfBlockSpawner: Doors initialized to closed state and shelf collisions ignored.");
         }
 
         private void Update()
@@ -329,11 +372,18 @@ namespace BlockBattle
             Vector3 basePosition = m_SpawnAnchor != null ? m_SpawnAnchor.position : transform.position;
             Vector3 normalizedDirection = m_SpawnDirection.normalized;
 
-            // Spawn each block
+            // Spawn each block in rows
             int blockIndex = 0;
             foreach (BlockSpawnEntry entry in entries)
             {
-                Vector3 spawnPosition = basePosition + normalizedDirection * (blockIndex * m_SpawnSpacing);
+                int col = blockIndex % m_BlocksPerRow;
+                int row = blockIndex / m_BlocksPerRow;
+
+                // Calculate position with horizontal spacing and vertical row offset
+                Vector3 spawnPosition = basePosition + 
+                                      normalizedDirection * (col * m_SpawnSpacing) + 
+                                      Vector3.up * (row * m_RowVerticalOffset);
+
                 GameObject block = SpawnSingleBlock(entry, spawnPosition);
 
                 if (block != null)
@@ -447,7 +497,7 @@ namespace BlockBattle
 
         /// <summary>
         /// Monitors door angles and triggers ejection when threshold is reached.
-        /// Also handles auto-opening doors and detecting when doors close with blocks returned.
+        /// Also handles detecting when doors close with blocks returned.
         /// </summary>
         private void MonitorDoors()
         {
@@ -459,21 +509,15 @@ namespace BlockBattle
             float angleL = Mathf.Abs(m_LeftDoor.angle);
             float angleR = Mathf.Abs(m_RightDoor.angle);
 
-            // Auto-open left door when past threshold
-            if (angleL >= m_AutoOpenThreshold && !_leftDoorAutoOpening)
+            // 1. Stabilize doors INDIVIDUALLY whenever they aren't being grabbed or kicked.
+            // This ensures they "stay where they are" instead of drifting.
+            if (!_isKicking)
             {
-                EnableDoorMotor(m_LeftDoor, true);
-                _leftDoorAutoOpening = true;
-            }
-            
-            // Auto-open right door when past threshold
-            if (angleR >= m_AutoOpenThreshold && !_rightDoorAutoOpening)
-            {
-                EnableDoorMotor(m_RightDoor, true);
-                _rightDoorAutoOpening = true;
+                StabilizeDoor(m_LeftDoor);
+                StabilizeDoor(m_RightDoor);
             }
 
-            // Trigger ejection when either door opens past trigger angle
+            // 2. Trigger ejection when either door opens past trigger angle
             if ((angleL >= m_TriggerAngle || angleR >= m_TriggerAngle) && !_hasTriggered)
             {
                 Debug.Log($"ShelfBlockSpawner: Door trigger! Left={angleL:F1}°, Right={angleR:F1}°, Threshold={m_TriggerAngle}°, StoredBlocks={_storedBlocks.Count}");
@@ -481,67 +525,64 @@ namespace BlockBattle
                 _hasTriggered = true;
             }
 
-            // Reset when both doors close below reset angle
+            // 3. Check for game completion (both doors closed below reset angle)
             if (angleL < m_ResetAngle && angleR < m_ResetAngle)
             {
-                // Disable door motors when closed
-                if (_leftDoorAutoOpening)
-                {
-                    EnableDoorMotor(m_LeftDoor, false);
-                    _leftDoorAutoOpening = false;
-                }
-                if (_rightDoorAutoOpening)
-                {
-                    EnableDoorMotor(m_RightDoor, false);
-                    _rightDoorAutoOpening = false;
-                }
-
-                if (_hasTriggered)
-                {
-                    _hasTriggered = false;
-                    Debug.Log("ShelfBlockSpawner: System reset - ready to fire again");
-                    OnShelfReset?.Invoke();
-                }
-
                 // Check if we're waiting for doors to close after blocks returned (last level)
                 if (_waitingForDoorsToClose)
                 {
-                    // Verify all blocks are still in the shelf
-                    if (AreAllBlocksReturned(_expectedBlockCountForClose))
+                    bool allReturned = AreAllBlocksReturned(_expectedBlockCountForClose);
+                    if (allReturned)
                     {
                         _waitingForDoorsToClose = false;
-                        Debug.Log("ShelfBlockSpawner: Doors closed with all blocks returned!");
+                        Debug.Log($"ShelfBlockSpawner: Doors successfully closed (L:{angleL:F1}°, R:{angleR:F1}°) with all blocks returned! FINISHING GAME.");
                         OnDoorsClosedWithBlocksReturned?.Invoke();
+                    }
+                    else
+                    {
+                        // Log why it's not firing (only every few seconds to avoid spam)
+                        if (Time.frameCount % 60 == 0)
+                        {
+                            Debug.Log($"ShelfBlockSpawner: Waiting for close, but not all blocks returned. Stored: {StoredBlockCount}/{_expectedBlockCountForClose}");
+                        }
                     }
                 }
             }
         }
 
         /// <summary>
-        /// Enables or disables the motor on a door hinge to auto-open/close.
+        /// Zeroes out velocity on a door to help it stay closed or settle.
         /// </summary>
-        /// <param name="door">The door HingeJoint</param>
-        /// <param name="enable">Whether to enable the motor</param>
-        private void EnableDoorMotor(HingeJoint door, bool enable)
+        private void StabilizeDoor(HingeJoint door)
         {
             if (door == null) return;
+            Rigidbody rb = door.GetComponent<Rigidbody>();
+            if (rb != null && !rb.isKinematic)
+            {
+                // Check if being grabbed
+                UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable grab = door.GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
+                bool isGrabbed = grab != null && grab.isSelected;
 
-            JointMotor motor = door.motor;
-            
-            if (enable)
-            {
-                // Determine direction based on current angle
-                float direction = Mathf.Sign(door.angle);
-                if (direction == 0) direction = 1;
-                
-                motor.targetVelocity = m_AutoOpenMotorVelocity * direction;
-                motor.force = m_AutoOpenMotorForce;
-                door.motor = motor;
-                door.useMotor = true;
-            }
-            else
-            {
-                door.useMotor = false;
+                if (isGrabbed)
+                {
+                    // When grabbed, ensure drag is low so it feels natural
+                    rb.angularDamping = 0.05f;
+                    return; 
+                }
+
+                // When NOT grabbed, we want it to "stay where it is"
+                // 1. Immediately kill velocity
+                rb.angularVelocity = Vector3.zero;
+                rb.linearVelocity = Vector3.zero;
+
+                // 2. Set high damping to fight any residual physics force (drifting)
+                rb.angularDamping = 10f;
+
+                // 3. Force it to sleep if velocity is low
+                if (rb.angularVelocity.magnitude < 0.05f)
+                {
+                    rb.Sleep();
+                }
             }
         }
 
@@ -561,6 +602,39 @@ namespace BlockBattle
         /// Gets whether we are currently waiting for doors to close.
         /// </summary>
         public bool IsWaitingForDoorsClose => _waitingForDoorsToClose;
+
+        /// <summary>
+        /// Forces the doors to be perfectly closed and stable.
+        /// Call this when the game finishes to ensure doors don't stay slightly ajar.
+        /// </summary>
+        public void ForceCloseDoors()
+        {
+            if (m_LeftDoor != null)
+            {
+                m_LeftDoor.transform.localRotation = Quaternion.identity;
+                Rigidbody rb = m_LeftDoor.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.Sleep();
+                }
+            }
+
+            if (m_RightDoor != null)
+            {
+                m_RightDoor.transform.localRotation = Quaternion.identity;
+                Rigidbody rb = m_RightDoor.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.Sleep();
+                }
+            }
+            
+            Debug.Log("ShelfBlockSpawner: Doors forced to perfectly closed state.");
+        }
 
         #endregion
 
@@ -619,15 +693,34 @@ namespace BlockBattle
             _storedBlocks.Clear();
 
             // Kick doors open further
+            _isKicking = true;
+            Debug.Log($"ShelfBlockSpawner: Triggering kick for both doors. Left: {(m_LeftDoor != null ? m_LeftDoor.name : "NULL")}, Right: {(m_RightDoor != null ? m_RightDoor.name : "NULL")}");
+            
+            // Apply a strong kick to both doors
             KickDoor(m_LeftDoor);
             KickDoor(m_RightDoor);
+
+            // Give a short window for the kick to actually move the doors
+            // before the stabilization logic kicks back in
+            StartCoroutine(ResetKickingState());
 
             OnBlocksEjected?.Invoke(ejectedCount);
         }
 
+        private IEnumerator ResetKickingState()
+        {
+            // Wait 1 second for the doors to fly open
+            yield return new WaitForSeconds(1.0f);
+            
+            // Disable motors after the kick is done
+            if (m_LeftDoor != null) m_LeftDoor.useMotor = false;
+            if (m_RightDoor != null) m_RightDoor.useMotor = false;
+            
+            _isKicking = false;
+        }
+
         /// <summary>
-        /// Applies an impulse to a door to kick it open further.
-        /// Uses the HingeJoint's axis to be rotation-independent.
+        /// Uses the HingeJoint motor to "kick" the door open to its limit.
         /// </summary>
         /// <param name="door">The door HingeJoint to kick</param>
         private void KickDoor(HingeJoint door)
@@ -637,16 +730,29 @@ namespace BlockBattle
             Rigidbody rb = door.GetComponent<Rigidbody>();
             if (rb != null)
             {
-                // Determine kick direction based on current door angle
-                float direction = Mathf.Sign(door.angle);
-                if (direction == 0) direction = 1;
+                // 1. Prepare physics
+                rb.isKinematic = false;
+                rb.WakeUp();
+                rb.angularDamping = 0.05f;
+
+                // 2. Use the Hinge motor to force it open to 120 degrees
+                // Swapping directions: Left = 1, Right = -1
+                JointMotor motor = door.motor;
+                float direction = (door == m_LeftDoor) ? 1f : -1f;
                 
-                // Use the hinge joint's axis in world space for rotation-independent behavior
-                // The axis is defined in local space of the door, so we transform it to world space
-                Vector3 hingeAxisWorld = door.transform.TransformDirection(door.axis);
+                motor.targetVelocity = 300f * direction; 
+                motor.force = 500f; 
+                door.motor = motor;
+                door.useMotor = true;
+
+                // 3. If the player is holding the door, we force a release so it can fly open
+                UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable grab = door.GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
+                if (grab != null && grab.isSelected)
+                {
+                    grab.interactionManager.SelectExit(grab.interactorsSelecting[0], grab);
+                }
                 
-                // Apply torque around the hinge axis in world space
-                rb.AddTorque(hingeAxisWorld * m_DoorKickForce * direction, ForceMode.Impulse);
+                Debug.Log($"ShelfBlockSpawner: Motor-Kicking door {door.gameObject.name} to open position (Velocity: {motor.targetVelocity}).");
             }
         }
 
@@ -699,10 +805,34 @@ namespace BlockBattle
                     block.AddComponent<BlockMovementTimeout>();
                 }
 
+                // Ignore collision with doors while inside the shelf to prevent doors from being pushed open
+                IgnoreDoorCollisions(block);
+
                 Debug.Log($"ShelfBlockSpawner: Spawned {entry.BlockType} ({entry.BlockColor}) at {spawnPosition}");
             }
 
             return block;
+        }
+
+        /// <summary>
+        /// Ignores collision between a block and the shelf doors.
+        /// </summary>
+        private void IgnoreDoorCollisions(GameObject block)
+        {
+            Collider blockCollider = block.GetComponent<Collider>();
+            if (blockCollider == null) return;
+
+            if (m_LeftDoor != null)
+            {
+                Collider doorCol = m_LeftDoor.GetComponent<Collider>();
+                if (doorCol != null) Physics.IgnoreCollision(blockCollider, doorCol);
+            }
+
+            if (m_RightDoor != null)
+            {
+                Collider doorCol = m_RightDoor.GetComponent<Collider>();
+                if (doorCol != null) Physics.IgnoreCollision(blockCollider, doorCol);
+            }
         }
 
         /// <summary>
@@ -840,7 +970,13 @@ namespace BlockBattle
             // Draw spawn direction
             Vector3 normalizedDir = m_SpawnDirection.normalized;
             Gizmos.color = Color.cyan;
-            Gizmos.DrawLine(spawnPos, spawnPos + normalizedDir * 0.5f);
+            
+            // Visualize the grid layout
+            for (int r = 0; r < 2; r++) // Show 2 rows
+            {
+                Vector3 rowStart = spawnPos + Vector3.up * (r * m_RowVerticalOffset);
+                Gizmos.DrawLine(rowStart, rowStart + normalizedDir * ((m_BlocksPerRow - 1) * m_SpawnSpacing));
+            }
 
             // Draw ejection direction
             Vector3 ejectDir = m_EjectionDirection != null 

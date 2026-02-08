@@ -46,6 +46,7 @@ namespace BlockBattle
 
         private int m_ExpectedBlockCount = 0;
         private int m_LastStoredCount = -1;
+        private bool _showingFinalResults = false;
 
         private void Start()
         {
@@ -59,8 +60,6 @@ namespace BlockBattle
             if (m_LevelManager != null)
             {
                 m_LevelManager.OnLevelStarted += OnLevelStarted;
-                m_LevelManager.OnBuildingPhaseCompleted += OnBuildingPhaseCompleted;
-                m_LevelManager.OnLevelCompleted += OnLevelCompleted;
             }
 
             // Initially hide
@@ -75,8 +74,6 @@ namespace BlockBattle
             if (m_LevelManager != null)
             {
                 m_LevelManager.OnLevelStarted -= OnLevelStarted;
-                m_LevelManager.OnBuildingPhaseCompleted -= OnBuildingPhaseCompleted;
-                m_LevelManager.OnLevelCompleted -= OnLevelCompleted;
             }
         }
 
@@ -86,8 +83,9 @@ namespace BlockBattle
                 return;
 
             // Check if we should show the UI
-            bool shouldShow = !m_OnlyShowDuringReturnPhase || 
-                             (m_LevelManager != null && m_LevelManager.CurrentPhase == LevelPhase.WaitingForReturn);
+            bool shouldShow = (m_LevelManager != null && m_LevelManager.IsGameStarted) &&
+                             (_showingFinalResults || 
+                             (m_LevelManager.CurrentPhase == LevelPhase.WaitingForReturn));
 
             if (m_UIPanel != null)
             {
@@ -96,6 +94,12 @@ namespace BlockBattle
 
             if (!shouldShow)
                 return;
+
+            // Get expected block count from current level configuration through the spawner
+            if (m_ShelfSpawner.SpawnConfiguration != null)
+            {
+                m_ExpectedBlockCount = m_ShelfSpawner.SpawnConfiguration.SpawnEntries?.Count ?? 0;
+            }
 
             // Update progress
             int currentCount = m_ShelfSpawner.StoredBlockCount;
@@ -108,50 +112,40 @@ namespace BlockBattle
             }
         }
 
-        private void OnLevelStarted(int levelNumber)
+        /// <summary>
+        /// Displays the final completion time on the status UI.
+        /// </summary>
+        /// <param name="timeInSeconds">The final time to display</param>
+        public void ShowFinalTime(float timeInSeconds)
         {
-            // Get expected block count from current level configuration
-            if (m_LevelManager != null)
-            {
-                // Access the configuration through the spawner
-                if (m_ShelfSpawner != null && m_ShelfSpawner.SpawnConfiguration != null)
-                {
-                    m_ExpectedBlockCount = m_ShelfSpawner.SpawnConfiguration.SpawnEntries?.Count ?? 0;
-                }
-            }
+            _showingFinalResults = true;
 
-            m_LastStoredCount = -1; // Force UI update
+            // Ensure the panel is actually visible
+            if (m_UIPanel != null) m_UIPanel.SetActive(true);
 
-            // Hide during building phase
-            if (m_UIPanel != null && m_OnlyShowDuringReturnPhase)
-            {
-                m_UIPanel.SetActive(false);
-            }
-        }
-
-        private void OnBuildingPhaseCompleted(int levelNumber)
-        {
-            // Show UI when building is complete
-            if (m_UIPanel != null)
-            {
-                m_UIPanel.SetActive(true);
-            }
-
-            m_LastStoredCount = -1; // Force UI update
-            
             if (m_StatusText != null)
             {
-                m_StatusText.text = "Return blocks to shelf";
+                // Format using LevelManager's consistent timing format
+                m_StatusText.text = $"Shelf Closed!\nTime needed: {LevelManager.FormatTime(timeInSeconds)}";
+                m_StatusText.color = m_CompleteColor;
             }
+
+            // Hide the count and fill bar as they are no longer relevant
+            if (m_CountText != null) m_CountText.gameObject.SetActive(false);
+            if (m_ProgressFill != null && m_ProgressFill.transform.parent != null) 
+                m_ProgressFill.transform.parent.gameObject.SetActive(false);
         }
 
-        private void OnLevelCompleted(int levelNumber)
+        private void OnLevelStarted(int levelNumber)
         {
-            // Hide UI when level is fully complete
-            if (m_UIPanel != null && m_OnlyShowDuringReturnPhase)
-            {
-                m_UIPanel.SetActive(false);
-            }
+            _showingFinalResults = false;
+
+            // Restore UI elements if they were hidden by ShowFinalTime
+            if (m_CountText != null) m_CountText.gameObject.SetActive(true);
+            if (m_ProgressFill != null && m_ProgressFill.transform.parent != null) 
+                m_ProgressFill.transform.parent.gameObject.SetActive(true);
+
+            m_LastStoredCount = -1; // Force UI update
         }
 
         /// <summary>
@@ -204,7 +198,7 @@ namespace BlockBattle
             {
                 if (currentCount >= expectedCount)
                 {
-                    m_StatusText.text = "All blocks returned!";
+                    m_StatusText.text = "Close the doors";
                     m_StatusText.color = m_CompleteColor;
                 }
                 else

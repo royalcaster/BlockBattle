@@ -236,31 +236,26 @@ namespace BlockBattle
             // Determine status and color
             Color statusColor;
             string statusIcon;
-            string statusText;
 
             if (!br.IsPresent)
             {
                 statusColor = m_MissingColor;
                 statusIcon = "[--]";
-                statusText = "MISSING";
             }
             else if (br.IsCorrect)
             {
                 statusColor = m_CorrectColor;
                 statusIcon = "[OK]";
-                statusText = "PLACED";
             }
             else if (br.IsPositionCorrect && !br.IsRotationCorrect)
             {
                 statusColor = m_PartialColor;
                 statusIcon = "[~R]";
-                statusText = "ROT ERR";
             }
             else
             {
                 statusColor = m_IncorrectColor;
                 statusIcon = "[~P]";
-                statusText = "POS ERR";
             }
 
             string hex = ColorUtility.ToHtmlStringRGB(statusColor);

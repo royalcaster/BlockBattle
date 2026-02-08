@@ -80,6 +80,19 @@ namespace BlockBattle
         [SerializeField, Tooltip("Text for success message")]
         private TextMeshProUGUI m_SuccessText;
 
+        [SerializeField, Tooltip("Reference to the ShelfProgressUI above the shelf")]
+        private ShelfProgressUI m_ShelfUI;
+
+        [Header("Audio")]
+        [SerializeField, Tooltip("Sound to play when a building is finished")]
+        private AudioClip m_CompletionSound;
+
+        [SerializeField, Tooltip("Sound to play when the entire game is finished")]
+        private AudioClip m_GameFinishedSound;
+
+        [SerializeField, Tooltip("AudioSource to play sounds (if null, will try to use one on this object)")]
+        private AudioSource m_CompletionAudioSource;
+
         [Header("Settings")]
         [SerializeField, Tooltip("Accuracy percentage required to complete a level (0-100)")]
         [Range(90f, 100f)]
@@ -216,6 +229,10 @@ namespace BlockBattle
                 m_DestructionManager = FindAnyObjectByType<DestructionPhaseManager>();
             if (m_XRSetup == null)
                 m_XRSetup = FindAnyObjectByType<BlockBattleXRSetup>();
+            if (m_ShelfUI == null)
+                m_ShelfUI = FindAnyObjectByType<ShelfProgressUI>();
+            if (m_CompletionAudioSource == null)
+                m_CompletionAudioSource = GetComponent<AudioSource>();
 
             // Subscribe to destruction manager events
             if (m_DestructionManager != null)
@@ -252,6 +269,12 @@ namespace BlockBattle
             m_GameTimer = 0f;
             m_TimerRunning = true;
             Debug.Log("LevelManager: Game started! Beginning Level 1...");
+            
+            // Enable player movement
+            if (m_XRSetup != null)
+            {
+                m_XRSetup.SetLocomotionEnabled(true);
+            }
             
             // Start with Level 1
             StartLevel(0);
@@ -375,12 +398,30 @@ namespace BlockBattle
             {
                 Debug.Log("LevelManager: Shelf doors closed! Finishing game...");
                 
+                // Force doors to be perfectly closed via script
+                if (m_ShelfSpawner != null)
+                {
+                    m_ShelfSpawner.ForceCloseDoors();
+                }
+
+                // Play "Game Finished" sound
+                if (m_CompletionAudioSource != null && m_GameFinishedSound != null)
+                {
+                    m_CompletionAudioSource.PlayOneShot(m_GameFinishedSound);
+                }
+                
+                // Change phase to prevent UpdateWaitingForReturnPhase from running again
+                m_CurrentPhase = LevelPhase.Transitioning;
+                
                 // Stop timer immediately when doors close
                 m_TimerRunning = false;
                 m_FinalTime = m_GameTimer;
                 
-                // Now start the countdown to show final results
-                StartCountdown();
+                // Show the final results immediately (EndTime_Canvas)
+                ShowAllLevelsCompleteMessage();
+                
+                // Fire completion event (triggers the 5s delay in StartScreenUI)
+                OnAllLevelsCompleted?.Invoke();
             }
         }
 
@@ -488,10 +529,25 @@ namespace BlockBattle
         /// </summary>
         private void OnBuildingComplete()
         {
+            // IMMEDIATELY switch phase to avoid double-triggering during the 1s delay
+            m_CurrentPhase = LevelPhase.Transitioning;
+
             // Fire event
             OnBuildingPhaseCompleted?.Invoke(CurrentLevelNumber);
 
-            // Start destruction phase
+            // Play the "Building Finished" sound
+            if (m_CompletionAudioSource != null && m_CompletionSound != null)
+            {
+                m_CompletionAudioSource.PlayOneShot(m_CompletionSound);
+            }
+
+            // Wait 1 second then start destruction phase
+            StartCoroutine(WaitThenStartDestruction());
+        }
+
+        private IEnumerator WaitThenStartDestruction()
+        {
+            yield return new WaitForSeconds(1f);
             StartDestructionPhase();
         }
 
@@ -504,17 +560,23 @@ namespace BlockBattle
             
             Debug.Log($"LevelManager: Starting destruction phase - teleporting player to slingshot position...");
 
-            // Teleport player to destruction position
-            if (m_XRSetup != null && m_DestructionTeleportPosition != null)
+            // Teleport player to destruction position with 180 degree rotation
+            if (m_XRSetup != null)
             {
-                m_XRSetup.TeleportPlayer(m_DestructionTeleportPosition);
-            }
-            else if (m_DestructionManager != null && m_DestructionManager.ShootingPosition != null)
-            {
-                // Fallback to destruction manager's shooting position
-                if (m_XRSetup != null)
+                Transform targetTransform = null;
+                if (m_DestructionTeleportPosition != null)
                 {
-                    m_XRSetup.TeleportPlayer(m_DestructionManager.ShootingPosition);
+                    targetTransform = m_DestructionTeleportPosition;
+                }
+                else if (m_DestructionManager != null && m_DestructionManager.ShootingPosition != null)
+                {
+                    targetTransform = m_DestructionManager.ShootingPosition;
+                }
+
+                if (targetTransform != null)
+                {
+                    // Teleport using the exact position and rotation of the marker
+                    m_XRSetup.TeleportPlayer(targetTransform.position, targetTransform.rotation);
                 }
             }
 
@@ -541,11 +603,12 @@ namespace BlockBattle
         /// </summary>
         private void OnDestructionPhaseComplete()
         {
-            Debug.Log($"LevelManager: Destruction phase complete!");
+            Debug.Log($"LevelManager: OnDestructionPhaseComplete called! Phase: {m_CurrentPhase}");
 
             // Teleport player back to building position (if specified)
             if (m_XRSetup != null && m_BuildingTeleportPosition != null)
             {
+                Debug.Log($"LevelManager: Teleporting back to building position: {m_BuildingTeleportPosition.name}");
                 m_XRSetup.TeleportPlayer(m_BuildingTeleportPosition);
             }
 
@@ -679,12 +742,9 @@ namespace BlockBattle
             }
             else
             {
-                // All levels complete - stop timer and save final time
-                m_TimerRunning = false;
-                m_FinalTime = m_GameTimer;
-                Debug.Log($"LevelManager: ALL LEVELS COMPLETE! Final time: {FormatTime(m_FinalTime)}");
-                ShowAllLevelsCompleteMessage();
-                OnAllLevelsCompleted?.Invoke();
+                // This block is now handled immediately in OnShelfDoorsClosedWithBlocks
+                // to avoid waiting for transitions on the last level.
+                Debug.Log("LevelManager: Transition logic for last level handled via shelf closure.");
             }
         }
 
@@ -826,6 +886,8 @@ namespace BlockBattle
         /// </summary>
         private void ShowAllLevelsCompleteMessage()
         {
+            Debug.Log($"LevelManager: Showing final results on shelf UI. Final time: {FormatTime(m_FinalTime)}");
+
             if (m_SuccessPanel != null)
             {
                 m_SuccessPanel.SetActive(true);
@@ -833,7 +895,19 @@ namespace BlockBattle
 
             if (m_SuccessText != null)
             {
-                m_SuccessText.text = "Congratulations!\n\nYou've completed all levels!";
+                m_SuccessText.text = $"CONGRATULATIONS!\n\nYou've completed all levels!";
+            }
+
+            // Show the final time prominently on the shelf UI
+            if (m_ShelfUI != null)
+            {
+                m_ShelfUI.ShowFinalTime(m_FinalTime);
+            }
+
+            // Hide the block indicators so they don't shine through the start screen/end message
+            if (m_GameplayHUD != null)
+            {
+                m_GameplayHUD.SetHUDVisible(false);
             }
         }
 
@@ -971,13 +1045,20 @@ namespace BlockBattle
             if (m_GameplayHUD != null)
             {
                 m_GameplayHUD.ResetHUD();
+                m_GameplayHUD.SetHUDVisible(false);
+            }
+
+            // Disable player movement
+            if (m_XRSetup != null)
+            {
+                m_XRSetup.SetLocomotionEnabled(false);
             }
 
             Debug.Log("LevelManager: Game reset. Ready for new game.");
         }
 
         /// <summary>
-        /// Formats a time value in seconds to a readable MM:SS.ss format.
+        /// Formats a time value in seconds to a readable MM:SS,ss format.
         /// </summary>
         /// <param name="timeInSeconds">Time in seconds</param>
         /// <returns>Formatted time string</returns>
@@ -985,7 +1066,8 @@ namespace BlockBattle
         {
             int minutes = Mathf.FloorToInt(timeInSeconds / 60f);
             float seconds = timeInSeconds % 60f;
-            return $"{minutes:00}:{seconds:00.00}";
+            // Use Replace to ensure a comma is used as the decimal separator
+            return $"{minutes:00}:{seconds:00.00}".Replace('.', ',');
         }
 
         #endregion

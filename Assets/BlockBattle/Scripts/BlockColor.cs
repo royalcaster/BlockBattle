@@ -13,7 +13,8 @@ namespace BlockBattle
         Yellow,
         Blue,
         Orange,
-        DarkGreen   // Dark green for base blocks
+        DarkGreen,  // Dark green for base blocks
+        White
     }
 
     /// <summary>
@@ -44,6 +45,8 @@ namespace BlockBattle
                     return new Color(1f, 0.5f, 0.1f, 1f);
                 case BlockColor.DarkGreen:
                     return new Color(0.1f, 0.4f, 0.2f, 1f);
+                case BlockColor.White:
+                    return Color.white;
                 default:
                     return new Color(0.6f, 0.4f, 0.2f, 1f); // Default to natural
             }

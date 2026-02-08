@@ -2,6 +2,7 @@ using UnityEngine;
 using Unity.XR.CoreUtils;
 using UnityEngine.XR;
 using UnityEngine.SpatialTracking;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion;
 
 namespace BlockBattle
 {
@@ -19,6 +20,10 @@ namespace BlockBattle
 
         [SerializeField, Tooltip("Camera Y offset in meters (eye height). Default is 1.36m.")]
         private float m_CameraYOffset = 1.36f;
+
+        [Header("Locomotion Control")]
+        [SerializeField, Tooltip("Whether locomotion (movement/turning) is enabled on start")]
+        private bool m_LocomotionEnabledOnStart = false;
 
         [Header("Controller Visibility")]
         [SerializeField, Tooltip("Ensure controllers are visible")]
@@ -116,27 +121,43 @@ namespace BlockBattle
                 EnsureControllersVisible();
             }
 
-            Debug.Log($"BlockBattleXRSetup: XR setup complete. Tracking mode: {m_XROrigin.RequestedTrackingOriginMode}, Scale: {m_PlayerScale}, Camera Y Offset: {m_CameraYOffset}");
+            // Set initial locomotion state
+            SetLocomotionEnabled(m_LocomotionEnabledOnStart);
+
+            Debug.Log($"BlockBattleXRSetup: XR setup complete. Tracking mode: {m_XROrigin.RequestedTrackingOriginMode}, Scale: {m_PlayerScale}, Camera Y Offset: {m_CameraYOffset}, Locomotion Enabled: {m_LocomotionEnabledOnStart}");
         }
 
         /// <summary>
-        /// Ensures the XR Origin rotation stays fixed - only the camera should rotate for head tracking.
-        /// Position changes are allowed for locomotion (movement via controllers).
-        /// In proper VR setup, the XR Origin rotation should remain fixed at identity.
-        /// Head rotation should only affect the camera (via TrackedPoseDriver), not the entire XR Origin.
+        /// Enables or disables all locomotion providers found on the XR Origin.
+        /// </summary>
+        /// <param name="enabled">Whether locomotion should be enabled</param>
+        public void SetLocomotionEnabled(bool enabled)
+        {
+            if (m_XROrigin == null) return;
+
+            // Find all locomotion providers (move, turn, teleport, etc.)
+            var providers = m_XROrigin.GetComponentsInChildren<LocomotionProvider>(true);
+            
+            foreach (var provider in providers)
+            {
+                if (provider != null)
+                {
+                    provider.enabled = enabled;
+                    Debug.Log($"BlockBattleXRSetup: {(enabled ? "Enabled" : "Disabled")} locomotion provider: {provider.GetType().Name} on {provider.gameObject.name}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ensures the XR Origin stays properly configured.
         /// </summary>
         private void LateUpdate()
         {
             if (m_XROrigin != null)
             {
-                // Keep rotation fixed - head rotation should only affect the camera via TrackedPoseDriver
-                // Position changes are allowed for locomotion (player movement via controllers)
-                Quaternion currentRot = m_XROrigin.transform.rotation;
-                if (Quaternion.Angle(currentRot, Quaternion.identity) > 0.1f)
-                {
-                    m_XROrigin.transform.rotation = Quaternion.identity;
-                    Debug.LogWarning($"BlockBattleXRSetup: XR Origin was rotated. Fixed to identity rotation.");
-                }
+                // We no longer force identity rotation here to allow for teleport rotation.
+                // If you notice issues with drift, you might want to re-add a softer 
+                // correction or only correct if NOT teleporting.
             }
         }
 
@@ -146,7 +167,7 @@ namespace BlockBattle
         private void EnsureControllersVisible()
         {
             // Find all XR Controller components
-            var controllers = m_XROrigin.GetComponentsInChildren<UnityEngine.XR.Interaction.Toolkit.XRController>();
+            var controllers = m_XROrigin.GetComponentsInChildren<UnityEngine.XR.Interaction.Toolkit.XRBaseController>();
             
             foreach (var controller in controllers)
             {
@@ -175,10 +196,11 @@ namespace BlockBattle
 
         /// <summary>
         /// Teleports the player to a specific position and rotation.
+        /// Aligns the player's headset (camera) with the target rotation.
         /// </summary>
-        /// <param name="position">Target world position for the player's feet</param>
-        /// <param name="rotation">Target rotation (Y rotation only, facing direction)</param>
-        public void TeleportPlayer(Vector3 position, Quaternion rotation)
+        /// <param name="targetPosition">Target world position for the player's head</param>
+        /// <param name="targetRotation">Target rotation for the player's view</param>
+        public void TeleportPlayer(Vector3 targetPosition, Quaternion targetRotation)
         {
             if (m_XROrigin == null)
             {
@@ -190,15 +212,23 @@ namespace BlockBattle
                 }
             }
 
-            // Move the XR Origin to the target position
-            m_XROrigin.transform.position = position;
+            // Calculate target world rotation for the XR Origin
+            // We want Origin.Rotation * Camera.LocalRotation = TargetRotation
+            // So Origin.Rotation = TargetRotation * Inverse(Camera.LocalRotation)
+            Quaternion cameraLocalRot = m_XROrigin.Camera.transform.localRotation;
+            Vector3 cameraLocalEuler = cameraLocalRot.eulerAngles;
+            Quaternion originRotation = Quaternion.Euler(0, targetRotation.eulerAngles.y - cameraLocalEuler.y, 0);
+
+            m_XROrigin.transform.rotation = originRotation;
+
+            // Calculate target world position for the XR Origin
+            // We want Origin.Pos + Origin.Rotation * Camera.LocalPos = TargetPos
+            // So Origin.Pos = TargetPos - Origin.Rotation * Camera.LocalPos
+            Vector3 cameraLocalPos = m_XROrigin.Camera.transform.localPosition;
+            cameraLocalPos.y = 0; // Maintain floor height
+            m_XROrigin.transform.position = targetPosition - (originRotation * cameraLocalPos);
             
-            // Note: We don't change the XR Origin rotation because head tracking should handle that.
-            // The player will be at the position but facing based on their head orientation.
-            // If you need to force a facing direction, you'd need to rotate the XR Origin,
-            // but that conflicts with our LateUpdate that resets rotation.
-            
-            Debug.Log($"BlockBattleXRSetup: Teleported player to {position}");
+            Debug.Log($"BlockBattleXRSetup: Teleported player to {targetPosition}, Origin Rotation: {originRotation.eulerAngles.y}");
         }
 
         /// <summary>

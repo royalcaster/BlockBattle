@@ -52,14 +52,14 @@ namespace BlockBattle
 
         [SerializeField, Tooltip("Base transparency of the holographic blocks (0 = fully transparent, 1 = opaque)")]
         [Range(0f, 1f)]
-        private float m_HolographicTransparency = 0.6f;
+        private float m_HolographicTransparency = 0.4f;
 
         [SerializeField, Tooltip("Color of the holographic emission/glow effect")]
-        private Color m_HolographicEmissionColor = new Color(0.3f, 0.8f, 1.0f, 1.0f);
+        private Color m_HolographicEmissionColor = new Color(0.2f, 0.4f, 0.5f, 1.0f);
 
         [SerializeField, Tooltip("Intensity of the emission glow effect")]
         [Range(0f, 5f)]
-        private float m_HolographicEmissionIntensity = 1.5f;
+        private float m_HolographicEmissionIntensity = 0.8f;
 
         [SerializeField, Tooltip("Power of the fresnel effect (higher = sharper edge glow)")]
         [Range(0f, 5f)]
@@ -97,8 +97,6 @@ namespace BlockBattle
 
         private List<GameObject> m_SpawnedBlocks = new List<GameObject>();
         private GameObject m_StructureRoot;
-        private bool m_IsRotating = false;
-        private Vector3 m_LastControllerPosition;
 
         // Events for game loop integration
         /// <summary>
