@@ -1,4 +1,4 @@
-BlockBattle - Cursor Implementation Plan
+BlockBattle - Core Implementation Plan
 
 Game Concept
 

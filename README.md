@@ -172,4 +172,3 @@ See [PR Template](.github/pull_request_template.md) for detailed requirements.
 ## References
 
 - [Unity XR Interaction Toolkit](https://docs.unity3d.com/Packages/com.unity.xr.interaction.toolkit@latest)
-- [SUIT Technical Guidelines](.cursor/rules) - Project-specific coding standards
