@@ -26289,8 +26289,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BlockBattle.LevelManager
   m_LevelConfigurations:
-  - {fileID: 11400000, guid: cda58762bbda6cc45b066eeba27a97f3, type: 2}
-  - {fileID: 11400000, guid: 45d9aa7e022b6864b97d0b98357f73e2, type: 2}
   - {fileID: 11400000, guid: 56f42839d405a3b4aba4d7f7f9e1d33e, type: 2}
   m_ReferenceSpawner: {fileID: 931133730}
   m_ShelfSpawner: {fileID: 2000022942}
