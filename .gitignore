@@ -77,3 +77,6 @@ ExportedObj/
 *.VC.db
 Docs/guidelines.pdf
 Docs/idea.pdf
+
+# Session summaries (internal notes, not for submission)
+Docs/SessionSummaries/
