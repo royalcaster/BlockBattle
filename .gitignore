@@ -80,3 +80,7 @@ Docs/idea.pdf
 
 # Session summaries (internal notes, not for submission)
 Docs/SessionSummaries/
+
+# Log files
+debug.log
+*.log
